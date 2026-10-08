@@ -1,0 +1,11 @@
+Paint logger features:
+- Add rooms and spaces
+- Assign multiple paint colors to every room or area
+- Store brand, color code, sheen level, and base type
+- Attach photos of paint samples and can labels
+- Add notes for coverage, number of coats, or anything else
+- Search the paint logger library by:
+	- room
+	- color name
+	- color family
+	- brand
