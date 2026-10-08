@@ -1,0 +1,68 @@
+// App shell: tabs via the URL hash, the sync badge, and re-rendering the
+// active tab whenever the store reports a change.
+
+import { h, $, clear } from './ui.js';
+import { badgeState } from '../ghsync/settings-ui.js';
+import { store, photos } from './sync.js';
+import * as paint from './paint.js';
+import * as breakers from './breakers.js';
+import * as inventory from './inventory.js';
+import * as settings from './settings.js';
+
+const TABS = {
+  paint: { title: 'Paint', mod: paint },
+  breakers: { title: 'Breakers', mod: breakers },
+  inventory: { title: 'Inventory', mod: inventory },
+  settings: { title: 'Settings', mod: settings },
+};
+
+let current = null;
+
+function route() {
+  const id = location.hash.slice(1);
+  const tab = TABS[id] ? id : 'paint';
+  if (tab === current) return;
+  current = tab;
+  for (const a of document.querySelectorAll('[data-tab]')) {
+    a.setAttribute('aria-current', a.dataset.tab === tab ? 'page' : 'false');
+  }
+  const view = clear($('#view'));
+  view.dataset.tab = tab;
+  TABS[tab].mod.mount(view);
+  document.title = `${TABS[tab].title} · Home Records`;
+}
+
+function renderBadge() {
+  const { text, cls } = badgeState(store);
+  const n = photos.pending();
+  const badge = $('#badge');
+  badge.className = `gh-badge ${cls}`;
+  badge.textContent = n && cls !== 'error' ? `${text} · ${n} photo${n === 1 ? '' : 's'} pending` : text;
+  badge.title = store.syncStatus().error?.message || '';
+}
+
+// Coalesce bursts of change events (a refresh can emit one per collection).
+let queued = false;
+function rerender() {
+  if (queued) return;
+  queued = true;
+  requestAnimationFrame(() => {
+    queued = false;
+    // Don't yank the DOM out from under an open form or an in-progress edit.
+    if (document.querySelector('dialog[open]')) { setTimeout(rerender, 400); return; }
+    TABS[current]?.mod.refresh();
+    renderBadge();
+  });
+}
+
+store.onChange((e) => {
+  if (e.type === 'sync-status') renderBadge();
+  else rerender();
+});
+
+$('#badge').addEventListener('click', () => { location.hash = 'settings'; });
+window.addEventListener('hashchange', route);
+route();
+renderBadge();
+store.init();
+photos.init();
