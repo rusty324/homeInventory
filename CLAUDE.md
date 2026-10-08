@@ -9,9 +9,11 @@ See README.md for the feature overview and layout.
   render the token into the DOM.
 - New collection: add it to `files` in `js/sync.js` (it is encrypted
   automatically) and to the backup/restore, which iterates `store.files`.
-- Photos are not collection fields: records hold `photoIds`; files live at
-  `data/photos/<id>.json` via `js/photos.js`. Use `photoEditor()` in forms
-  and `dropPhotos()` when deleting a record.
+- Binary attachments are not collection fields. Records hold `photoIds` or
+  `manuals` entries; the bytes live at `data/photos/<id>.json` /
+  `data/files/<id>.json` via `js/blobs.js`. Use `photoEditor()`/`docsEditor()`
+  in forms (they defer uploads to `commit()`), and `dropPhotos()`/`dropDocs()`
+  when deleting a record. Render user URLs only through `safeUrl()`.
 - Each tab module exports `mount(root)` (build toolbar once) and `refresh()`
   (re-render results from the store). `main.js` calls `refresh()` on store
   changes, deferred while a dialog is open.

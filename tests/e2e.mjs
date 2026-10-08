@@ -54,7 +54,7 @@ async function fakeGithub(route) {
   const url = new URL(req.url());
   const method = req.method();
   const body = req.postData() ? JSON.parse(req.postData()) : null;
-  calls.push({ method, path: url.pathname, body });
+  calls.push({ method, path: url.pathname, body, accept: req.headers().accept });
   const json = (status, obj) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(obj) });
   if (req.headers().authorization !== 'Bearer tok123') return json(401, { message: 'Bad credentials' });
   const m = /^\/repos\/([^/]+)\/([^/]+)(?:\/contents\/(.*))?$/.exec(url.pathname);
@@ -62,7 +62,14 @@ async function fakeGithub(route) {
   const p = m[3];
   if (p === undefined) return json(200, { full_name: `${OWNER}/${REPO}`, private: true });
   if (method === 'GET') {
-    if (repo.has(p)) { const f = repo.get(p); return json(200, { name: p.split('/').pop(), path: p, sha: f.sha, content: f.content }); }
+    if (repo.has(p)) {
+      const f = repo.get(p);
+      const size = Buffer.from(f.content, 'base64').length;
+      // Like the real API: files over 1 MB only come back via the raw media type.
+      if (req.headers().accept === 'application/vnd.github.raw+json') return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: Buffer.from(f.content, 'base64') });
+      if (size > 1024 * 1024) return json(200, { name: p.split('/').pop(), path: p, sha: f.sha, size, content: '', encoding: 'none' });
+      return json(200, { name: p.split('/').pop(), path: p, sha: f.sha, size, content: f.content, encoding: 'base64' });
+    }
     const kids = [...repo.entries()].filter(([k]) => k.startsWith(`${p}/`) && !k.slice(p.length + 1).includes('/'));
     if (kids.length) return json(200, kids.map(([k, f]) => ({ name: k.split('/').pop(), path: k, sha: f.sha, type: 'file' })));
     return json(404, { message: 'Not Found' });
@@ -143,6 +150,7 @@ async function noisyPng(page) {
   return { name: 'swatch.png', mimeType: 'image/png', buffer: Buffer.from(b64, 'base64') };
 }
 
+const PDF = Buffer.concat([Buffer.from('%PDF-1.4\n'), crypto.randomBytes(1_600_000)]);
 const dialog = (page) => page.locator('dialog[open]').last();
 const fieldIn = (page, label) => dialog(page).locator('.field', { has: page.locator('.field-label', { hasText: new RegExp(`^${label}$`) }) });
 
@@ -254,6 +262,78 @@ try {
   await page.getByRole('button', { name: /Cost/ }).click();
   check(JSON.stringify(await names()) === '["TV","Drill"]', 'sorted by cost descending');
   check((await page.locator('.totals').textContent()).includes('$1,028.99'), 'total cost');
+
+  // Manuals: a link and an uploaded file > 1 MB (exercises the raw-media read later)
+  await page.locator('.data-table tbody tr', { hasText: 'TV' }).click();
+  const docsEd = dialog(page).locator('.docs-editor');
+  await docsEd.getByLabel('Link URL').fill('javascript:alert(1)');
+  await docsEd.getByRole('button', { name: 'Add link' }).click();
+  check(await docsEd.locator('.doc-row').count() === 0, 'javascript: link rejected');
+  await docsEd.getByLabel('Link URL').fill('example.com/tv-manual.pdf');
+  await docsEd.getByLabel('Link label').fill('Owner manual');
+  await docsEd.getByRole('button', { name: 'Add link' }).click();
+  await docsEd.locator('input[type=file]').setInputFiles({ name: 'tv-guide.pdf', mimeType: 'application/pdf', buffer: PDF });
+  await docsEd.locator('.doc-row').nth(1).waitFor();
+  await dialog(page).getByRole('button', { name: 'Save' }).click();
+  await page.waitForTimeout(200);
+  const tvDocs = page.locator('.data-table tbody tr', { hasText: 'TV' }).locator('.doc-link');
+  check(await tvDocs.count() === 2, 'manuals column shows link and file');
+  check(await tvDocs.first().getAttribute('href') === 'https://example.com/tv-manual.pdf', 'link normalised to https');
+  // Headless Chromium has no PDF viewer, so the new tab turns the blob into a
+  // download; a desktop browser renders it. Accept either.
+  const [popup] = await Promise.all([A.ctx.waitForEvent('page'), tvDocs.nth(1).click()]);
+  const pdfDl = popup.waitForEvent('download', { timeout: 8000 }).catch(() => null);
+  const opened = await until(() => popup.url().startsWith('blob:'), 8000) || (await pdfDl);
+  const dlSize = opened?.path ? (await fs.stat(await opened.path())).size : null;
+  check(opened && (dlSize === null || dlSize === PDF.length), `uploaded manual opens in a new tab (${popup.url().slice(0, 5)}, download ${dlSize})`);
+  await popup.close();
+  check(calls.length === 0, 'still nothing sent to GitHub');
+
+  step('Maintenance');
+  await page.click('a[data-tab=maintenance]');
+  check(await page.evaluate(async () => {
+    const m = await import('/js/maintenance.js');
+    return m.addInterval('2025-01-31', 1, 'months') === '2025-02-28' && m.addInterval('2024-01-31', 1, 'months') === '2024-02-29'
+      && m.addInterval('2024-02-29', 1, 'years') === '2025-02-28' && m.addInterval('2025-12-30', 1, 'weeks') === '2026-01-06';
+  }), 'interval math clamps month ends');
+  await page.getByRole('button', { name: 'Pick from common tasks' }).click();
+  await dialog(page).locator('label.preset', { hasText: 'Replace HVAC air filter' }).locator('input').check();
+  await dialog(page).locator('label.preset', { hasText: 'Drain / flush water heater' }).locator('input').check();
+  await dialog(page).getByRole('button', { name: 'Add selected' }).click();
+  await page.locator('.task-row').nth(1).waitFor();
+  check(await page.locator('.group-soon .task-row').count() === 2, 'new preset tasks are due today');
+  check((await page.locator('.group-soon .due-pill').first().textContent()) === 'Today', 'due pill says Today');
+  const twoMonthsAgo = await page.evaluate(() => { const d = new Date(); d.setMonth(d.getMonth() - 2); return d.toISOString().slice(0, 10); });
+  await page.getByRole('button', { name: '+ Task' }).click();
+  await fieldIn(page, 'Task').locator('input').fill('Clean humidifier pad');
+  await dialog(page).getByLabel('Every').fill('1');
+  await dialog(page).getByLabel('Interval unit').selectOption('months');
+  await fieldIn(page, 'Last done').locator('input').fill(twoMonthsAgo);
+  await dialog(page).getByRole('button', { name: 'Save' }).click();
+  await page.waitForTimeout(200);
+  check(await page.locator('.group-overdue .task-row').count() === 1, 'task last done 2 months ago on a monthly schedule is overdue');
+  check((await page.locator('#overdue-count').textContent()) === '1', 'tab shows overdue count');
+  await page.locator('.task-row', { hasText: 'HVAC' }).getByRole('button', { name: '✓ Done' }).click();
+  await fieldIn(page, 'Cost \\(\\$\\)').locator('input').fill('24.50');
+  await fieldIn(page, 'Note').locator('input').fill('16x25x1 MERV 8');
+  await dialog(page).getByRole('button', { name: 'Log it' }).click();
+  await page.waitForTimeout(200);
+  check(await page.locator('.group-later .task-row', { hasText: 'HVAC' }).count() === 1, 'logging moves the task to Later');
+  const expectDue = await page.evaluate(async () => { const m = await import('/js/maintenance.js'); const { shortDate } = await import('/js/ui.js'); return shortDate(m.addInterval(m.today(), 3, 'months')); });
+  check((await page.locator('.task-row', { hasText: 'HVAC' }).locator('.due-pill').getAttribute('title')) === `Due ${expectDue}`, 'next due is 3 months out');
+  // Link the water heater task to an item that has manuals
+  await page.locator('.task-row', { hasText: 'water heater' }).click();
+  await fieldIn(page, 'Inventory item').locator('select').selectOption({ label: 'TV' });
+  await dialog(page).getByRole('button', { name: 'Save' }).click();
+  await page.waitForTimeout(200);
+  check(await page.locator('.task-row', { hasText: 'water heater' }).locator('.doc-link').count() === 2, 'task shows the linked item’s manuals');
+  await page.getByRole('tab', { name: 'History' }).click();
+  check((await page.locator('.results').textContent()).includes('$24.50'), 'history lists the logged cost');
+  await page.getByRole('tab', { name: 'Upcoming' }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Calendar (.ics)' }).click()]);
+  const ics = await fs.readFile(await dl.path(), 'utf8');
+  check((ics.match(/BEGIN:VEVENT/g) || []).length === 3 && ics.includes('RRULE:FREQ=MONTHLY;INTERVAL=3'), 'calendar export has recurring events');
+  check(ics.split('\r\n').every((l) => Buffer.byteLength(l) <= 75) && ics.endsWith('END:VCALENDAR\r\n'), 'calendar lines folded per RFC 5545');
   check(calls.length === 0, 'still nothing sent to GitHub');
 
   step('Connect data repo');
@@ -268,7 +348,9 @@ try {
   await until(() => page.locator('details[data-section=datarepo] button', { hasText: 'Upload all local data' }).isEnabled());
   await page.locator('details[data-section=datarepo]').getByRole('button', { name: 'Upload all local data' }).click();
   await until(() => repo.size >= 6);
-  check(['rooms', 'paints', 'panels', 'breakers', 'inventory'].every((n) => repo.has(`data/${n}.json`)), 'every collection uploaded');
+  await until(() => [...repo.keys()].some((k) => k.startsWith('data/files/')));
+  check(['rooms', 'paints', 'panels', 'breakers', 'inventory', 'maintenance'].every((n) => repo.has(`data/${n}.json`)), 'every collection uploaded');
+  check([...repo.keys()].some((k) => k.startsWith('data/files/')), 'uploaded manual stored as its own file');
   check([...repo.keys()].some((k) => k.startsWith('data/photos/')), 'photo uploaded as its own file');
   check(calls.every((c) => c.path.startsWith(`/repos/${OWNER}/${REPO}`)), 'every request targets the data repo');
   const inv = JSON.parse(decode(repo.get('data/inventory.json').content));
@@ -301,6 +383,15 @@ try {
   const seen = await until(async () => (await B.page.locator('.paint-card img[src^="data:"]').count()) === 1, 30000);
   if (process.env.DEBUG) console.log(`photo visible after ${Date.now() - t0} ms`);
   check(seen, 'photo downloaded and decrypted on device B');
+  const bDoc = await B.page.evaluate(async () => {
+    const { store, docs } = await import('/js/sync.js');
+    const tv = store.get('items').find((i) => i.name === 'TV');
+    const f = tv?.manuals?.find((d) => d.kind === 'file');
+    return f ? (await docs.blob(f.fileId))?.size : null;
+  });
+  check(bDoc === PDF.length, `manual (>1 MB, encrypted) readable on device B (${bDoc} bytes)`);
+  check(calls.some((c) => c.accept === 'application/vnd.github.raw+json'), 'large file read through the raw media type');
+  check(await B.page.evaluate(async () => (await import('/js/sync.js')).store.get('tasks').length) === 3, 'maintenance tasks synced to device B');
 
   step('Offline queue');
   await A.page.click('a[data-tab=inventory]');
@@ -343,7 +434,7 @@ try {
 
   step('Mobile layout');
   await A.page.setViewportSize({ width: 375, height: 800 });
-  for (const tab of ['paint', 'breakers', 'inventory', 'settings']) {
+  for (const tab of ['paint', 'breakers', 'inventory', 'maintenance', 'settings']) {
     await A.page.click(`a[data-tab=${tab}]`);
     await A.page.waitForTimeout(100);
     const over = await A.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

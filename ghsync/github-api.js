@@ -101,11 +101,19 @@ export function makeClient(repoCfgOrGetter, tokens) {
       const c = raw();
       return c?.owner && c?.repo ? { branch: 'main', ...c } : null;
     },
-    // -> { content: string, sha } ; throws NotFoundError if absent
+    // -> { content: string, sha } ; throws NotFoundError if absent.
+    // Files over 1 MB come back from the JSON endpoint with empty content
+    // (encoding "none"); fetch those again with the raw media type (≤ 100 MB).
     async getFile(path) {
-      const res = await fetch(`${base()}/${path}?ref=${cfg().branch}`, { headers: headers() });
+      const url = `${base()}/${path}?ref=${cfg().branch}`;
+      const res = await fetch(url, { headers: headers() });
       await check(res, path);
       const json = await res.json();
+      if (json.encoding === 'none' || (!json.content && json.size > 0)) {
+        const raw = await fetch(url, { headers: { ...headers(), Accept: 'application/vnd.github.raw+json' } });
+        await check(raw, path);
+        return { content: await raw.text(), sha: json.sha };
+      }
       return { content: b64decode(json.content), sha: json.sha };
     },
 

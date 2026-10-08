@@ -12,12 +12,13 @@ JSON files in a *separate private GitHub repo* through the Contents API.
 
 **Scope of this doc:** integrating the package, extending it, and testing it.
 If you are changing this app's own features, the app-specific layer is `js/`
-at the repo root — `js/sync.js` creates the store and `js/photos.js` handles
-photo files outside the collection model — not this folder.
+at the repo root — `js/sync.js` creates the store and `js/blobs.js` handles
+photo and document files outside the collection model — not this folder.
 
 **Provenance:** vendored from another project. Local changes: chunked base64
 in `crypto.js` and `github-api.js` (the spread form threw a RangeError past
-~100 KB), and `client.deleteFile()` in `github-api.js`. The app's own test is
+~100 KB), `client.deleteFile()`, and a raw-media fallback in `getFile()` for
+files over 1 MB. The app's own test is
 `tests/e2e.mjs`; it drives the real page with the GitHub API stubbed.
 
 ## Files
@@ -136,8 +137,9 @@ It is isomorphic (WebCrypto only), so Node workflows can import the same file.
   `onRefresh` hook, read/write individual paths with `readFile`/`writeFile`,
   claim them in `encryptPath` if they are personal, and list them in
   `extraPaths()` so encryption migrations and `pushAllData()` cover them.
-  `js/photos.js` at this repo's root is a worked example: one file per photo
-  under `data/photos/`, mirrored into IndexedDB rather than localStorage.
+  `js/blobs.js` at this repo's root is a worked example: one file per photo or
+  document under `data/photos/` and `data/files/`, mirrored into IndexedDB
+  rather than localStorage.
 - **New collection**: add it to `files`, add it to `encrypted` if personal,
   and that's it — the queue, merge, refresh, and seeding all pick it up.
 - **New GitHub call**: add it to `makeClient` so it inherits `headers()`,
@@ -176,8 +178,9 @@ the PUT body.
   a delete on one device can be resurrected by another device's stale copy.
   Accepted trade-off for a single-user tool; use a tombstone field if it
   matters.
-- **Large files** — the Contents API only returns file content below ~1 MB.
-  Shard by month or by key before a collection approaches that; there is no
-  automatic splitting.
+- **Large files** — the Contents API only inlines content below 1 MB;
+  `getFile` falls back to the raw media type above that (up to 100 MB), but
+  every write still re-uploads the whole file. Shard a collection by month or
+  key long before it gets big; there is no automatic splitting.
 - **GitHub keeps history** — deleting data in the app does not remove it from
   earlier commits. Only deleting the data repo really erases it.

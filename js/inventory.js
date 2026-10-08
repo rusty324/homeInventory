@@ -1,6 +1,7 @@
 // Home inventory: a sortable table of belongings — name, brand, model number,
-// acquisition date, purchase cost, description, location, and pictures —
-// with a running total and a CSV export for insurance paperwork.
+// acquisition date, purchase cost, description, location, pictures, and
+// manuals (links or uploaded files) — with a running total and a CSV export
+// for insurance paperwork.
 
 import {
   h, uid, input, textarea, field, select, setOptions, suggestInput, openModal, confirmDialog,
@@ -9,6 +10,7 @@ import {
 import { store, saveRecord } from './sync.js';
 import { rooms, roomName, roomSelect } from './rooms.js';
 import { photoEditor, photoThumb, dropPhotos } from './photo-ui.js';
+import { docsEditor, docLinks, dropDocs, docLabel } from './docs-ui.js';
 
 const COLUMNS = [
   { key: 'photo', label: '' },
@@ -19,6 +21,7 @@ const COLUMNS = [
   { key: 'cost', label: 'Cost', num: true },
   { key: 'location', label: 'Location' },
   { key: 'description', label: 'Description' },
+  { key: 'manuals', label: 'Manuals', numericSort: true },
 ];
 
 const state = { q: '', room: '', sort: 'name', dir: 1 };
@@ -29,6 +32,7 @@ const locationText = (i) => [roomName(i.roomId), i.locationDetail].filter(Boolea
 function sortValue(i, key) {
   if (key === 'location') return locationText(i);
   if (key === 'cost') return i.cost === '' || i.cost == null ? null : Number(i.cost);
+  if (key === 'manuals') return (i.manuals || []).length || null;
   return i[key] ?? '';
 }
 
@@ -37,13 +41,13 @@ function filtered() {
   const col = COLUMNS.find((c) => c.key === sort);
   return items()
     .filter((i) => (!state.room || i.roomId === state.room)
-      && matches(state.q, i.name, i.brand, i.model, i.serial, i.description, locationText(i), i.acquiredOn))
+      && matches(state.q, i.name, i.brand, i.model, i.serial, i.description, locationText(i), i.acquiredOn, (i.manuals || []).map(docLabel)))
     .sort((a, b) => {
       const va = sortValue(a, sort); const vb = sortValue(b, sort);
       // Blanks always sort last, whichever direction.
       const ea = va === '' || va == null; const eb = vb === '' || vb == null;
       if (ea || eb) return ea === eb ? 0 : ea ? 1 : -1;
-      return dir * (col?.num ? va - vb : byText((x) => x)(va, vb));
+      return dir * (col?.num || col?.numericSort ? va - vb : byText((x) => x)(va, vb));
     });
 }
 
@@ -95,7 +99,8 @@ export function refresh() {
     h('td', { class: 'nowrap' }, shortDate(i.acquiredOn)),
     h('td', { class: 'num' }, money(i.cost)),
     h('td', {}, locationText(i)),
-    h('td', { class: 'desc' }, i.description || ''))));
+    h('td', { class: 'desc' }, i.description || ''),
+    h('td', { class: 'col-docs' }, docLinks(i.manuals, { compact: true })))));
   results.append(
     h('div', { class: 'table-wrap' }, h('table', { class: 'data-table' }, h('thead', {}, head), body)),
     h('p', { class: 'muted totals' }, `${list.length} item${list.length === 1 ? '' : 's'}${list.length !== items().length ? ` (of ${items().length})` : ''} · total ${money(total) || '$0.00'}`));
@@ -115,6 +120,7 @@ export function editItem(item = null) {
   const locationDetail = suggestInput(it.locationDetail, details, { placeholder: 'e.g. top shelf, left closet' });
   const description = textarea(it.description);
   const pics = photoEditor(it.photoIds || []);
+  const manuals = docsEditor(it.manuals || []);
 
   openModal({
     title: item ? 'Edit item' : 'New item',
@@ -129,10 +135,12 @@ export function editItem(item = null) {
       field('Room', room),
       field('Location detail', locationDetail),
       field('Description', description, { wide: true }),
-      field('Pictures (item, receipt, serial plate)', pics.el, { wide: true })),
+      field('Pictures (item, receipt, serial plate)', pics.el, { wide: true }),
+      field('Manuals & documents', manuals.el, { wide: true })),
     onSave: async () => {
       if (!name.value.trim()) { toast('Give the item a name', 'error'); return false; }
       const photoIds = await pics.commit();
+      const manualList = await manuals.commit();
       saveRecord('items', {
         ...it,
         name: name.value.trim(),
@@ -145,6 +153,7 @@ export function editItem(item = null) {
         locationDetail: locationDetail.input.value.trim(),
         description: description.value.trim(),
         photoIds,
+        manuals: manualList,
       });
       return true;
     },
@@ -152,18 +161,20 @@ export function editItem(item = null) {
       if (!(await confirmDialog(`Delete “${item.name}”?`))) return false;
       store.remove('items', item.id);
       dropPhotos(item.photoIds);
+      dropDocs(item.manuals);
       return true;
     } : null,
   });
 }
 
 function exportCsv() {
-  const cols = ['Name', 'Brand', 'Model', 'Serial', 'Acquired', 'Cost', 'Room', 'Location detail', 'Description', 'Photos'];
+  const cols = ['Name', 'Brand', 'Model', 'Serial', 'Acquired', 'Cost', 'Room', 'Location detail', 'Description', 'Photos', 'Manuals'];
   const esc = (v) => {
     const s = String(v ?? '');
     return /[",\n\r]/.test(s) || /^[=+\-@]/.test(s) ? `"${(/^[=+\-@]/.test(s) ? `'${s}` : s).replace(/"/g, '""')}"` : s;
   };
-  const rows = filtered().map((i) => [i.name, i.brand, i.model, i.serial, i.acquiredOn, i.cost, roomName(i.roomId), i.locationDetail, i.description, (i.photoIds || []).length]);
+  const rows = filtered().map((i) => [i.name, i.brand, i.model, i.serial, i.acquiredOn, i.cost, roomName(i.roomId), i.locationDetail, i.description, (i.photoIds || []).length,
+    (i.manuals || []).map((d) => (d.kind === 'link' ? d.url : `${docLabel(d)} (uploaded file)`)).join(' | ')]);
   const csv = [cols, ...rows].map((r) => r.map(esc).join(',')).join('\r\n');
   const a = h('a', { href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })), download: `home-inventory-${new Date().toISOString().slice(0, 10)}.csv` });
   document.body.append(a);

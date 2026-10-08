@@ -1,5 +1,6 @@
-// Rooms are shared by all three tools: paint is applied in rooms, breakers
-// feed rooms, inventory items live in rooms. One collection, many pickers.
+// Rooms are shared by every tool: paint is applied in rooms, breakers feed
+// rooms, inventory items live in rooms, maintenance happens in rooms. One
+// collection, many pickers.
 
 import { h, uid, input, textarea, field, select, setOptions, suggestInput, openModal, confirmDialog, toast, byText, clear } from './ui.js';
 import { store, saveRecord } from './sync.js';
@@ -109,14 +110,15 @@ export function editRoom(room = null) {
 export function roomUsage(id) {
   return store.get('paints').filter((p) => (p.uses || []).some((u) => u.roomId === id)).length
     + store.get('breakers').filter((b) => (b.roomIds || []).includes(id)).length
-    + store.get('items').filter((i) => i.roomId === id).length;
+    + store.get('items').filter((i) => i.roomId === id).length
+    + store.get('tasks').filter((t) => t.roomId === id).length;
 }
 
 // Room list for Settings.
 export function roomsManager() {
   const list = rooms();
   return h('div', {},
-    list.length ? null : h('p', { class: 'muted' }, 'No rooms yet. Rooms are shared by the paint log, breakers, and inventory.'),
+    list.length ? null : h('p', { class: 'muted' }, 'No rooms yet. Rooms are shared by the paint log, breakers, inventory, and maintenance.'),
     ...list.map((r) => h('div', { class: 'list-row tappable', onclick: () => editRoom(r) },
       h('div', { class: 'row-main' },
         h('div', { class: 'row-title' }, r.name),

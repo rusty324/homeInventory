@@ -3,16 +3,18 @@
 
 import { h, $, clear } from './ui.js';
 import { badgeState } from '../ghsync/settings-ui.js';
-import { store, photos } from './sync.js';
+import { store, pendingUploads, initBlobs } from './sync.js';
 import * as paint from './paint.js';
 import * as breakers from './breakers.js';
 import * as inventory from './inventory.js';
+import * as maintenance from './maintenance.js';
 import * as settings from './settings.js';
 
 const TABS = {
   paint: { title: 'Paint', mod: paint },
   breakers: { title: 'Breakers', mod: breakers },
   inventory: { title: 'Inventory', mod: inventory },
+  maintenance: { title: 'Maintenance', mod: maintenance },
   settings: { title: 'Settings', mod: settings },
 };
 
@@ -34,10 +36,16 @@ function route() {
 
 function renderBadge() {
   const { text, cls } = badgeState(store);
-  const n = photos.pending();
+  const n = pendingUploads();
   const badge = $('#badge');
   badge.className = `gh-badge ${cls}`;
-  badge.textContent = n && cls !== 'error' ? `${text} · ${n} photo${n === 1 ? '' : 's'} pending` : text;
+  badge.textContent = n && cls !== 'error' ? `${text} · ${n} upload${n === 1 ? '' : 's'} pending` : text;
+  // Overdue maintenance count on its tab, so it's visible from anywhere.
+  const overdue = maintenance.overdueCount();
+  const count = $('#overdue-count');
+  count.textContent = overdue ? String(overdue) : '';
+  count.hidden = !overdue;
+  count.title = `${overdue} overdue`;
   badge.title = store.syncStatus().error?.message || '';
 }
 
@@ -65,4 +73,4 @@ window.addEventListener('hashchange', route);
 route();
 renderBadge();
 store.init();
-photos.init();
+initBlobs();

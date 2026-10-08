@@ -1,9 +1,9 @@
 // Settings: ghsync's data-repo / token / encryption sections, the shared room
-// list, and a JSON backup (records only — photos live in the data repo).
+// list, and a JSON backup (records only — photos and files live in the data repo).
 
 import { h, clear, toast, confirmDialog } from './ui.js';
 import { syncSections, setupRows } from '../ghsync/settings-ui.js';
-import { store, photos } from './sync.js';
+import { store, pendingUploads } from './sync.js';
 import { roomsManager } from './rooms.js';
 
 let root;
@@ -23,8 +23,8 @@ export function refresh() {
   if (!root || !live?.rooms.isConnected) return;
   live.rooms.replaceChildren(roomsManager());
   live.roomCount.textContent = `${store.get('rooms').length}`;
-  const pending = photos.pending();
-  live.pending.textContent = `${pending} photo change(s) waiting to upload.`;
+  const pending = pendingUploads();
+  live.pending.textContent = `${pending} photo/file change(s) waiting to upload.`;
   live.pending.hidden = !pending;
   const { enabled, locked } = store.encryption();
   if (live.privacy) live.privacy.textContent = locked ? '🔒 locked' : enabled ? 'encryption on' : 'encryption off';
@@ -47,7 +47,7 @@ function render() {
         repoPlaceholder: 'home-data',
         tokenScopeNote: 'A fine-grained personal access token with access to only your private data repo, '
           + 'permission Contents: read and write. It needs no access to this site’s public repo.',
-        privacyOff: 'Optional: encrypt records and photos (AES-256-GCM) before they are committed to the data repo.',
+        privacyOff: 'Optional: encrypt records, photos and files (AES-256-GCM) before they are committed to the data repo.',
       },
     }),
     { id: 'rooms', name: 'Rooms & spaces', state: '', body: null },
@@ -75,7 +75,7 @@ function render() {
           h('li', {}, 'GitHub → Settings → Developer settings → Fine-grained tokens → Generate. Repository access: only that repo. Permissions: Contents → Read and write.'),
           h('li', {}, 'Enter the repo and paste the token above, then press “Upload all local data” once.'),
           h('li', {}, 'On each other device, enter the same repo and a token; data downloads automatically.')),
-        h('p', { class: 'muted' }, 'Records are stored as JSON under data/, photos under data/photos/. Edits made offline are queued and pushed when you reconnect. GitHub keeps history, so deleted data remains in old commits until the repo itself is deleted.'))),
+        h('p', { class: 'muted' }, 'Records are stored as JSON under data/, photos under data/photos/, uploaded documents under data/files/. Edits made offline are queued and pushed when you reconnect. GitHub keeps history, so deleted data remains in old commits until the repo itself is deleted.'))),
   );
   openId = null;
   refresh();
@@ -117,7 +117,7 @@ function backupSection() {
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   };
   return h('div', {},
-    h('p', { class: 'muted' }, 'Download every record as one JSON file, or restore from one. Photos are not included — they live in the data repo (and this browser).'),
+    h('p', { class: 'muted' }, 'Download every record as one JSON file, or restore from one. Photos and uploaded files are not included — they live in the data repo (and this browser).'),
     h('div', { class: 'field-row' },
       h('button', { type: 'button', class: 'btn secondary', onclick: exportJson }, 'Download backup'),
       h('button', { type: 'button', class: 'btn secondary', onclick: () => fileInput.click() }, 'Restore backup…')),
