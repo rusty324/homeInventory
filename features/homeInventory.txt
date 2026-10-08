@@ -1,0 +1,3 @@
+capabilities:
+- sortable list
+- columns for name, brand, model number, acquisition date, purchase cost, description, location, and picture
