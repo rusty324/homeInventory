@@ -1,0 +1,14 @@
+Assign notes, rooms, and fixtures to each breaker.
+Tandem splits, multi-pole circuits, GFCI outlets, and HACR systems all supported. Track wire gauge and size. Use custom phase colors for 1-, 2-, and 3-phase panels.
+ORGANIZE BY ROOM
+Link circuits to the rooms and fixtures they control
+— so you always know which breaker to flip, in seconds.
+PDF LEGENDS
+Export to PDF, sized to fit a panel sleeve or tape to the door. Adjust font scale per label for a professional result.
+MULTI-PANEL SUPPORT
+Manage multiple panels across one or more properties. Link breakers to sub-panels.
+PRO FEATURES
+• Unlimited panels
+• PDF export with custom print sizes
+• Cloud sync across all your devices
+• Custom fixture types and unlimited rooms
