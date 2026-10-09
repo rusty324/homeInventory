@@ -136,6 +136,7 @@ export const BREAKER_TIPS = {
 
 export const FIXTURE_TIPS = {
   Name: 'What the load is, e.g. Pendant lights or Garbage disposal. Renaming it updates every breaker that uses it.',
+  Room: 'The room this fixture is usually in. Adding it to a breaker starts it there — you can still change it per breaker. Leave empty for things in many rooms, like outlets.',
   Notes: 'Anything worth knowing: wattage, model, exactly where it is.',
 };
 

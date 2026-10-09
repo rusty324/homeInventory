@@ -355,10 +355,19 @@ try {
   await page.locator('.brk', { hasText: 'Hall lights' }).click();
   await dialog(page).locator('.fixtures-editor').getByLabel('Add fixture').selectOption('__new__');
   await fieldIn(page, 'Name').locator('input').fill('Pendant lights');
+  await fieldIn(page, 'Room').locator('select').selectOption({ label: 'Kitchen' });
   await dialog(page).getByRole('button', { name: 'Save' }).click();
   check(await until(async () => (await dialog(page).locator('.fixture-row').allTextContents()).some((t) => t.includes('Pendant lights'))), 'a new fixture is created and added to the breaker');
+  check(await dialog(page).getByLabel('Room for Pendant lights').inputValue() === 'room-kitchen', 'a room chosen for the new fixture carries onto the breaker');
   await dialog(page).getByRole('button', { name: 'Save' }).click();
   await page.waitForTimeout(150);
+  // Picking that fixture on another breaker starts it in its usual room.
+  await page.locator('.brk', { hasText: 'Hall outlets' }).click();
+  await dialog(page).locator('.fixtures-editor').getByLabel('Add fixture').selectOption('Pendant lights');
+  check(await dialog(page).getByLabel('Room for Pendant lights').inputValue() === 'room-kitchen', 'an existing fixture starts in its usual room');
+  await dialog(page).getByLabel('Room for Pendant lights').selectOption('');
+  check(await dialog(page).getByLabel('Room for Pendant lights').inputValue() === '', '…and can still be changed per breaker');
+  await page.keyboard.press('Escape');
 
   // Settings: the list, rename (updates breakers) and delete (removes from breakers).
   await page.click('[data-tab=settings]');
@@ -366,6 +375,7 @@ try {
   const fxSection = page.locator('details[data-section=fixtures]');
   const listed = await fxSection.locator('.row-title').allTextContents();
   check(['Dishwasher', 'Disposal', 'Lights', 'Outlets', 'Pendant lights'].every((n) => listed.includes(n)), `Settings lists your fixtures, including ones only used on breakers (${listed.join(', ')})`);
+  check((await fxSection.locator('.list-row', { hasText: 'Pendant lights' }).locator('.row-sub').textContent()).includes('Kitchen'), 'the list shows a fixture’s usual room');
   await fxSection.locator('.list-row', { hasText: /^Lights/ }).click();
   check((await dialog(page).textContent()).includes('Used on 1 breaker'), 'the fixture editor says where it’s used');
   await fieldIn(page, 'Name').locator('input').fill('Ceiling lights');
