@@ -26,6 +26,15 @@ export function refresh() {
   const pending = pendingUploads();
   live.pending.textContent = `${pending} photo/file change(s) waiting to upload.`;
   live.pending.hidden = !pending;
+  // The badge's tooltip carries the last error, but phones have no hover —
+  // so spell it out here, with a retry.
+  const { status, error } = store.syncStatus();
+  const queued = store.cache.getQueue().length;
+  const problem = status === 'error' || (status === 'pending' && (error || queued));
+  live.problem.hidden = !problem;
+  live.problemText.textContent = problem
+    ? `${status === 'error' ? 'Sync error' : `${queued} file(s) waiting to upload`}${error ? `: ${error.message}` : ''}`
+    : '';
   const { enabled, locked } = store.encryption();
   if (live.privacy) live.privacy.textContent = locked ? '🔒 locked' : enabled ? 'encryption on' : 'encryption off';
 }
@@ -54,13 +63,25 @@ function render() {
     { id: 'rooms', name: 'Rooms & spaces', state: '', body: null },
     { id: 'backup', name: 'Backup', state: '', body: backupSection() },
   ];
-  live = { rooms: h('div'), roomCount: null, pending: h('p', { class: 'muted' }), privacy: null };
+  const problemText = h('span');
+  live = {
+    rooms: h('div'), roomCount: null, pending: h('p', { class: 'muted' }), privacy: null, problemText,
+    problem: h('div', { class: 'sync-problem', role: 'status' }, problemText,
+      h('button', { type: 'button', class: 'btn small secondary', onclick: async (e) => {
+        e.target.disabled = true;
+        await store.flushQueue();
+        await store.refresh();
+        e.target.disabled = false;
+        refresh();
+      } }, 'Retry now')),
+  };
   root.append(
     h('div', { class: 'card flat setup' },
       h('h2', {}, 'Sync setup'),
       h('p', { class: 'muted' }, 'Without a data repo everything stays in this browser only. Connect a private GitHub repo to back up and sync across devices.'),
       ...setupRows(store, reveal),
-      live.pending),
+      live.pending,
+      live.problem),
     ...sections.map((s) => h('details', {
       class: 'settings-section',
       dataset: { section: s.id },

@@ -207,6 +207,13 @@ export function createStore(opts) {
       setStatus(canSync() ? 'pending' : 'local');
       return;
     }
+    // Never loaded on this device (null, not []): there is nothing local to
+    // upload, and writing it would replace the remote file with "null".
+    if (cache.getData(path) == null) {
+      cache.clearDirty(path);
+      setStatus(cache.getQueue().length ? 'pending' : 'ok');
+      return;
+    }
     setStatus('pending');
     try {
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -238,7 +245,9 @@ export function createStore(opts) {
       // Locked remote = encrypted under a password we don't have; merging is
       // impossible and overwriting would destroy data. Stay dirty and queued.
       if (res.locked) throw new Error(`Cannot merge ${path}: encrypted with an unknown password`);
-      remote = res.data;
+      // A collection file can hold "null" (older ghsync seeded never-used
+      // collections that way); treat anything that isn't a list as empty.
+      remote = Array.isArray(res.data) ? res.data : [];
       sha = f.sha;
     } catch (e) {
       if (!(e instanceof NotFoundError)) throw e;
@@ -262,7 +271,16 @@ export function createStore(opts) {
 
   // ---------- background refresh ----------
 
-  async function refresh() {
+  // One refresh at a time; seeding and re-encryption wait for it (see
+  // settled()) so they never race a download that is still landing.
+  let refreshing = null;
+  function refresh() {
+    if (!refreshing) refreshing = doRefresh().finally(() => { refreshing = null; });
+    return refreshing;
+  }
+  const settled = () => refreshing || Promise.resolve();
+
+  async function doRefresh() {
     if (!canSync() || !navigator.onLine) return;
     try {
       for (const [collection, path] of Object.entries(files)) {
@@ -338,8 +356,10 @@ export function createStore(opts) {
   // because the workflow will reconverge on its next run.
   async function rewriteEncryptedFiles(collections = encrypted) {
     if (!canSync()) return; // local mode, or no repo configured yet
+    await settled();
     for (const collection of collections) {
       const path = files[collection];
+      if (cache.getData(path) == null) continue; // never loaded here: nothing to (re)write
       cache.markDirty(path);
       await push(path, collection);
     }
@@ -361,6 +381,7 @@ export function createStore(opts) {
   // against a different repo's history.
   async function pushAllData() {
     if (!canSync()) throw new Error('Set a data repository and a token first');
+    await settled();
     for (const path of Object.values(files)) cache.setSha(path, null);
     for (const path of extraPaths()) cache.setSha(path, null);
     await rewriteEncryptedFiles(Object.keys(files));

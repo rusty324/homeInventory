@@ -20,6 +20,7 @@ const REPO = 'home-data';
 // exercised by every sync check below.
 const DIR = 'records/my home';
 let PUBLIC = false; // flipped at the end to check the public-repo warning
+let FAIL_PUTS = false; // make every write fail with a 500, to check failures are reported
 
 // ---------- static server ----------
 const TYPES = {
@@ -82,6 +83,7 @@ async function fakeGithub(route) {
     return json(404, { message: 'Not Found' });
   }
   if (method === 'PUT') {
+    if (FAIL_PUTS) return json(500, { message: 'Server Error' });
     const cur = repo.get(p);
     if (cur && body.sha !== cur.sha) return json(409, { message: 'sha mismatch' });
     if (!cur && body.sha) return json(409, { message: 'no such file' });
@@ -129,7 +131,8 @@ async function newDevice() {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { // Chrome logs every non-2xx fetch; 404/409 are expected protocol here.
-    if ((m.type() === 'error' || m.type() === 'warning') && !m.text().startsWith('Failed to load resource')) errors.push(m.text()); logs.push(`${((Date.now() - T0) / 1000).toFixed(2)} ${ctxName} ${m.type()}: ${m.text()}`.slice(0, 300)); if (process.env.DEBUG) console.log('[page]', m.type(), m.text()); });
+    if ((m.type() === 'error' || m.type() === 'warning') && !m.text().startsWith('Failed to load resource')
+      && !m.text().includes('GitHub API 500') /* injected deliberately via FAIL_PUTS */) errors.push(m.text()); logs.push(`${((Date.now() - T0) / 1000).toFixed(2)} ${ctxName} ${m.type()}: ${m.text()}`.slice(0, 300)); if (process.env.DEBUG) console.log('[page]', m.type(), m.text()); });
   await page.addInitScript(() => {
     window.__printed = 0;
     window.print = () => { window.__printed++; };
@@ -470,6 +473,42 @@ try {
     return res.data.map((i) => i.name).sort();
   });
   check(JSON.stringify(merged) === '["Bike","Drill","Ladder","TV"]', `409 merged both sides by id (${merged})`);
+
+  step('Upload all over legacy null files');
+  // Older versions seeded never-used collections as the literal "null". A
+  // device with local records in such a collection must merge into it, and
+  // "Upload all local data" must end synced — and say so truthfully.
+  for (const n of ['panels', 'breakers']) repo.set(`${DIR}/${n}.json`, { content: Buffer.from('null\n').toString('base64'), sha: shaOf(`legacy-${n}`) });
+  await B.page.evaluate(async () => {
+    const { store } = await import('/js/sync.js');
+    await store.upsert('panels', { id: 'pB', name: 'Shed panel', spaces: 8 });
+  });
+  await B.page.click('[data-tab=settings]');
+  await B.page.locator('summary', { hasText: 'Data repository' }).click();
+  const uploadAllB = B.page.locator('details[data-section=datarepo]').getByRole('button', { name: 'Upload all local data' });
+
+  // First with GitHub failing every write: the app must say so, not claim success.
+  FAIL_PUTS = true;
+  await uploadAllB.click();
+  check(await until(() => logs.some((l) => l.includes('dev2') && l.includes('toast: Upload didn’t finish'))), 'Upload all reports failure when writes fail');
+  check(!logs.some((l) => l.includes('dev2') && l.includes('toast: Uploaded all local data')), 'no false success toast');
+  check(await until(() => B.page.locator('.sync-problem').isVisible()) && (await B.page.locator('.sync-problem').textContent()).includes('GitHub API 500'),
+    'Settings shows the sync problem and its cause (no hover needed on a phone)');
+  FAIL_PUTS = false;
+  await B.page.locator('.sync-problem').getByRole('button', { name: 'Retry now' }).click();
+  check(await until(async () => !(await B.page.locator('.sync-problem').isVisible())), '“Retry now” clears the problem once GitHub accepts writes');
+
+  await uploadAllB.click();
+  check(await until(() => logs.some((l) => l.includes('dev2') && l.includes('toast: Uploaded all local data'))), 'Upload all reports success when it succeeded');
+  check(await until(async () => (await B.page.locator('#badge').textContent()) === 'synced'), 'second device ends synced, not stuck pending');
+  const panelsNow = await B.page.evaluate(async () => {
+    const { store } = await import('/js/sync.js');
+    const f = await store.client.getFile('data/panels.json');
+    return (await store.deserializeFile('data/panels.json', JSON.parse(f.content))).data.map((p) => p.name);
+  });
+  check(JSON.stringify(panelsNow) === '["Main panel","Shed panel"]', `local panel merged into the "null" file, nothing lost (${panelsNow})`);
+  const nulls = [...repo.entries()].filter(([, f]) => decode(f.content).trim() === 'null').map(([k]) => k);
+  check(nulls.length === 0, `no collection file left as "null" (${nulls.join(', ') || 'none'})`);
 
   step('Photo delete');
   const photosBefore = [...repo.keys()].filter((k) => k.startsWith(`${DIR}/photos/`)).length;

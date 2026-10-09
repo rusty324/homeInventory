@@ -93,6 +93,7 @@ tests/e2e.mjs       Playwright end-to-end test (GitHub API stubbed)
 ```
 npm i -D playwright   # or link an existing install into node_modules/
 node tests/e2e.mjs
+node tests/http-cache.mjs   # needs openssl and permission to bind port 443
 ```
 
 The test drives the real page in Chromium against an in-memory fake of the
@@ -100,5 +101,8 @@ GitHub Contents API: local-only mode sends nothing, all four tools, seeding a
 repo, encryption (no plaintext in any committed file), files over 1 MB read via
 the raw media type, a second device,
 offline queueing, 409 conflict merges, photo deletion, syncing into a nested
-folder (nothing written outside it), the public-repo warning, and no
-horizontal scroll at phone width.
+folder (nothing written outside it), the public-repo warning, a second
+device uploading over legacy `"null"` files, honest failure reporting with
+retry, and no horizontal scroll at phone width. `tests/http-cache.mjs` repeats
+the two-device flow over real HTTPS with GitHub's caching headers, because
+request interception turns the browser's HTTP cache off.
