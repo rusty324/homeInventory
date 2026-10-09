@@ -16,6 +16,10 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OWNER = 'me';
 const REPO = 'home-data';
+// Sync into a nested folder with a space, so path mapping and URL encoding are
+// exercised by every sync check below.
+const DIR = 'records/my home';
+let PUBLIC = false; // flipped at the end to check the public-repo warning
 
 // ---------- static server ----------
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
@@ -59,8 +63,8 @@ async function fakeGithub(route) {
   if (req.headers().authorization !== 'Bearer tok123') return json(401, { message: 'Bad credentials' });
   const m = /^\/repos\/([^/]+)\/([^/]+)(?:\/contents\/(.*))?$/.exec(url.pathname);
   if (!m || m[1] !== OWNER || m[2] !== REPO) return json(404, { message: 'Not Found' });
-  const p = m[3];
-  if (p === undefined) return json(200, { full_name: `${OWNER}/${REPO}`, private: true });
+  const p = m[3] === undefined ? undefined : decodeURIComponent(m[3]);
+  if (p === undefined) return json(200, { full_name: `${OWNER}/${REPO}`, private: !PUBLIC });
   if (method === 'GET') {
     if (repo.has(p)) {
       const f = repo.get(p);
@@ -342,18 +346,21 @@ try {
   const repoBody = page.locator('details[data-section=datarepo]');
   await repoBody.locator('input').nth(0).fill(OWNER);
   await repoBody.locator('input').nth(1).fill(REPO);
+  await repoBody.getByLabel('Folder', { exact: true }).fill(` /${DIR}/ `);
+  check((await repoBody.locator('.field', { hasText: 'Folder in the repo' }).textContent()).includes(`Files go in ${DIR}/, e.g. ${DIR}/inventory.json`), 'folder preview shows the normalised path');
   await repoBody.getByRole('button', { name: 'Save data repo' }).click();
   await page.locator('details[data-section=token] input[type=password]').fill('tok123');
   await page.locator('details[data-section=token]').getByRole('button', { name: 'Save token' }).click();
   await until(() => page.locator('details[data-section=datarepo] button', { hasText: 'Upload all local data' }).isEnabled());
   await page.locator('details[data-section=datarepo]').getByRole('button', { name: 'Upload all local data' }).click();
   await until(() => repo.size >= 6);
-  await until(() => [...repo.keys()].some((k) => k.startsWith('data/files/')));
-  check(['rooms', 'paints', 'panels', 'breakers', 'inventory', 'maintenance'].every((n) => repo.has(`data/${n}.json`)), 'every collection uploaded');
-  check([...repo.keys()].some((k) => k.startsWith('data/files/')), 'uploaded manual stored as its own file');
-  check([...repo.keys()].some((k) => k.startsWith('data/photos/')), 'photo uploaded as its own file');
+  await until(() => [...repo.keys()].some((k) => k.startsWith(`${DIR}/files/`)));
+  check(['rooms', 'paints', 'panels', 'breakers', 'inventory', 'maintenance'].every((n) => repo.has(`${DIR}/${n}.json`)), 'every collection uploaded');
+  check([...repo.keys()].some((k) => k.startsWith(`${DIR}/files/`)), 'uploaded manual stored as its own file');
+  check([...repo.keys()].some((k) => k.startsWith(`${DIR}/photos/`)), 'photo uploaded as its own file');
+  check([...repo.keys()].every((k) => k.startsWith(`${DIR}/`)), 'nothing written outside the chosen folder');
   check(calls.every((c) => c.path.startsWith(`/repos/${OWNER}/${REPO}`)), 'every request targets the data repo');
-  const inv = JSON.parse(decode(repo.get('data/inventory.json').content));
+  const inv = JSON.parse(decode(repo.get(`${DIR}/inventory.json`).content));
   check(inv.length === 2 && inv.some((i) => i.name === 'TV'), 'inventory content correct');
   await until(async () => (await page.locator('#badge').textContent()) === 'synced');
   check(await page.locator('#badge').textContent() === 'synced', 'badge says synced');
@@ -366,16 +373,16 @@ try {
   const plain = [...repo.entries()].filter(([, f]) => !decode(f.content).includes('ft-encrypted')).map(([k]) => k);
   check(plain.length === 0, `all files encrypted (plaintext: ${plain.join(', ') || 'none'})`);
   check(![...repo.values()].some((f) => /Agreeable Gray|"label": "Dryer"|"name": "TV"/.test(decode(f.content))), 'no plaintext in the repo');
-  const photoPath = [...repo.keys()].find((k) => k.startsWith('data/photos/'));
+  const photoPath = [...repo.keys()].find((k) => k.startsWith(`${DIR}/photos/`));
   check(decode(repo.get(photoPath).content).length > 150000, 'large encrypted photo written (chunked base64 OK)');
 
   step('Second device');
   const B = await newDevice();
-  await B.page.evaluate(({ o, r }) => {
-    localStorage.setItem('homeinv.datarepo', JSON.stringify({ owner: o, repo: r, branch: 'main' }));
+  await B.page.evaluate(({ o, r, d }) => {
+    localStorage.setItem('homeinv.datarepo', JSON.stringify({ owner: o, repo: r, branch: 'main', dir: d }));
     localStorage.setItem('homeinv.pat', 'tok123');
     localStorage.setItem('homeinv.enc.pw', 'hunter2');
-  }, { o: OWNER, r: REPO });
+  }, { o: OWNER, r: REPO, d: DIR });
   await B.page.reload();
   check(await until(async () => (await B.page.locator('.paint-card').count()) === 2, 10000), 'paints synced to device B');
   const t0 = Date.now();
@@ -404,7 +411,7 @@ try {
   check(calls.slice(before).every((c) => c.method === 'GET'), 'no write while offline');
   check(await A.page.locator('#badge').textContent() === 'pending sync', 'badge says pending');
   await A.ctx.setOffline(false);
-  await until(async () => JSON.stringify(repo.get('data/inventory.json')).length && (await A.page.locator('#badge').textContent()) === 'synced');
+  await until(async () => JSON.stringify(repo.get(`${DIR}/inventory.json`)).length && (await A.page.locator('#badge').textContent()) === 'synced');
   check(await A.page.locator('#badge').textContent() === 'synced', 'queued write flushed on reconnect');
 
   step('Conflict merge');
@@ -423,19 +430,27 @@ try {
   check(JSON.stringify(merged) === '["Bike","Drill","Ladder","TV"]', `409 merged both sides by id (${merged})`);
 
   step('Photo delete');
-  const photosBefore = [...repo.keys()].filter((k) => k.startsWith('data/photos/')).length;
+  const photosBefore = [...repo.keys()].filter((k) => k.startsWith(`${DIR}/photos/`)).length;
   await A.page.click('a[data-tab=paint]');
   await A.page.getByRole('tab', { name: 'Colors' }).click();
   await A.page.locator('.paint-card', { hasText: 'Agreeable Gray' }).click();
   await dialog(A.page).locator('.photo-x').first().click();
   await dialog(A.page).getByRole('button', { name: 'Save' }).click();
-  await until(() => [...repo.keys()].filter((k) => k.startsWith('data/photos/')).length === photosBefore - 1);
-  check([...repo.keys()].filter((k) => k.startsWith('data/photos/')).length === photosBefore - 1, 'removed photo deleted from repo');
+  await until(() => [...repo.keys()].filter((k) => k.startsWith(`${DIR}/photos/`)).length === photosBefore - 1);
+  check([...repo.keys()].filter((k) => k.startsWith(`${DIR}/photos/`)).length === photosBefore - 1, 'removed photo deleted from repo');
+
+  step('Public repo warning');
+  PUBLIC = true;
+  await A.page.click('[data-tab=settings]');
+  await A.page.locator('summary', { hasText: 'Data repository' }).click();
+  await A.page.locator('details[data-section=datarepo]').getByRole('button', { name: 'Save data repo' }).click();
+  check(await until(() => logs.some((l) => l.includes('toast: Warning: that repo is PUBLIC'))), 'saving a public data repo warns');
+  PUBLIC = false;
 
   step('Mobile layout');
   await A.page.setViewportSize({ width: 375, height: 800 });
   for (const tab of ['paint', 'breakers', 'inventory', 'maintenance', 'settings']) {
-    await A.page.click(`a[data-tab=${tab}]`);
+    await A.page.click(`[data-tab=${tab}]`);
     await A.page.waitForTimeout(100);
     const over = await A.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     check(over <= 0, `no horizontal page scroll on ${tab} at 375px`);

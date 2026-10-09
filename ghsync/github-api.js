@@ -56,6 +56,21 @@ async function check(res, path) {
   throw new Error(`GitHub API ${res.status} for ${path}`);
 }
 
+// Folder inside the data repo, canonicalised: blank -> 'data' (the default),
+// '/' -> '/' (the repo root), otherwise trimmed with no leading/trailing
+// slashes. Idempotent. Throws on '.'/'..' segments or backslashes rather than
+// guessing what was meant.
+export function normalizeDir(dir) {
+  const raw = String(dir ?? '').trim();
+  if (!raw) return 'data';
+  const d = raw.replace(/\/{2,}/g, '/').replace(/^\/+|\/+$/g, '');
+  if (!d) return '/';
+  if (d.includes('\\') || d.split('/').some((s) => s === '.' || s === '..')) {
+    throw new Error(`Invalid folder: ${dir}`);
+  }
+  return d;
+}
+
 // UTF-8-safe base64 helpers (btoa alone breaks on non-ASCII text).
 // Chunked, because spreading a large array into fromCharCode overflows the
 // call stack (RangeError) once a file passes ~100 KB.
@@ -88,6 +103,22 @@ export function makeClient(repoCfgOrGetter, tokens) {
   };
   const base = () => `${API}/repos/${cfg().owner}/${cfg().repo}/contents`;
 
+  // Folder mapping. Apps address files by logical paths under `data/`; the
+  // configured `dir` (default 'data', '' = repo root) is where that tree lives
+  // in the repo, so one private repo can hold several apps' data side by side.
+  const dir = () => { const d = normalizeDir(cfg().dir); return d === '/' ? '' : d; };
+  const remote = (path) => {
+    if (path !== 'data' && !path.startsWith('data/')) return path;
+    const rest = path.slice(5); // after 'data/'
+    return dir() ? (rest ? `${dir()}/${rest}` : dir()) : rest;
+  };
+  const logical = (path) => {
+    const d = dir();
+    if (!d) return `data/${path}`;
+    return path === d ? 'data' : path.startsWith(`${d}/`) ? `data/${path.slice(d.length + 1)}` : path;
+  };
+  const url = (path) => `${base()}/${remote(path).split('/').map(encodeURIComponent).join('/')}`;
+
   return {
     isConfigured() {
       try {
@@ -105,12 +136,12 @@ export function makeClient(repoCfgOrGetter, tokens) {
     // Files over 1 MB come back from the JSON endpoint with empty content
     // (encoding "none"); fetch those again with the raw media type (≤ 100 MB).
     async getFile(path) {
-      const url = `${base()}/${path}?ref=${cfg().branch}`;
-      const res = await fetch(url, { headers: headers() });
+      const u = `${url(path)}?ref=${encodeURIComponent(cfg().branch)}`;
+      const res = await fetch(u, { headers: headers() });
       await check(res, path);
       const json = await res.json();
       if (json.encoding === 'none' || (!json.content && json.size > 0)) {
-        const raw = await fetch(url, { headers: { ...headers(), Accept: 'application/vnd.github.raw+json' } });
+        const raw = await fetch(u, { headers: { ...headers(), Accept: 'application/vnd.github.raw+json' } });
         await check(raw, path);
         return { content: await raw.text(), sha: json.sha };
       }
@@ -125,7 +156,7 @@ export function makeClient(repoCfgOrGetter, tokens) {
         branch: cfg().branch,
       };
       if (sha) body.sha = sha;
-      const res = await fetch(`${base()}/${path}`, {
+      const res = await fetch(url(path), {
         method: 'PUT',
         headers: { ...headers(), 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -137,7 +168,7 @@ export function makeClient(repoCfgOrGetter, tokens) {
 
     // sha is required by the API. Throws ConflictError on sha mismatch.
     async deleteFile(path, sha, message) {
-      const res = await fetch(`${base()}/${path}`, {
+      const res = await fetch(url(path), {
         method: 'DELETE',
         headers: { ...headers(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, sha, branch: cfg().branch }),
@@ -145,14 +176,17 @@ export function makeClient(repoCfgOrGetter, tokens) {
       await check(res, path);
     },
 
-    // -> [{ name, path, sha }] ; [] if the directory doesn't exist yet
+    // -> [{ name, path, sha }] with logical paths ; [] if the directory doesn't exist yet
     async listDir(path) {
-      const res = await fetch(`${base()}/${path}?ref=${cfg().branch}`, { headers: headers() });
+      const res = await fetch(`${url(path)}?ref=${encodeURIComponent(cfg().branch)}`, { headers: headers() });
       if (res.status === 404) return [];
       await check(res, path);
       const json = await res.json();
-      return Array.isArray(json) ? json.map(({ name, path: p, sha }) => ({ name, path: p, sha })) : [];
+      return Array.isArray(json) ? json.map(({ name, path: p, sha }) => ({ name, path: logical(p), sha })) : [];
     },
+
+    // Where a logical path lives in the repo (for display).
+    remotePath: (path) => remote(path),
 
     // Run a workflow in the data repo via workflow_dispatch. Only needed by
     // apps whose data repo has Actions; the PAT then also needs Actions:write.
@@ -168,11 +202,12 @@ export function makeClient(repoCfgOrGetter, tokens) {
       await check(res, workflowFile);
     },
 
-    // Cheap validity probe for the settings panel.
+    // Cheap validity probe for the settings panel. -> { private: boolean }
     async validate() {
       const res = await fetch(`${API}/repos/${cfg().owner}/${cfg().repo}`, { headers: headers() });
       await check(res, 'repo');
-      return true;
+      const json = await res.json().catch(() => ({}));
+      return { private: json.private !== false };
     },
   };
 }

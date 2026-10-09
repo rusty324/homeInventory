@@ -45,6 +45,7 @@ function render() {
       reopen: (id) => { openId = id; render(); },
       text: {
         repoPlaceholder: 'home-data',
+        previewFile: 'inventory.json',
         tokenScopeNote: 'A fine-grained personal access token with access to only your private data repo, '
           + 'permission Contents: read and write. It needs no access to this site’s public repo.',
         privacyOff: 'Optional: encrypt records, photos and files (AES-256-GCM) before they are committed to the data repo.',
@@ -75,7 +76,7 @@ function render() {
           h('li', {}, 'GitHub → Settings → Developer settings → Fine-grained tokens → Generate. Repository access: only that repo. Permissions: Contents → Read and write.'),
           h('li', {}, 'Enter the repo and paste the token above, then press “Upload all local data” once.'),
           h('li', {}, 'On each other device, enter the same repo and a token; data downloads automatically.')),
-        h('p', { class: 'muted' }, 'Records are stored as JSON under data/, photos under data/photos/, uploaded documents under data/files/. Edits made offline are queued and pushed when you reconnect. GitHub keeps history, so deleted data remains in old commits until the repo itself is deleted.'))),
+        h('p', { class: 'muted' }, 'Records are stored as JSON in the folder you choose (default data/), with photos/ and files/ subfolders for photos and uploaded documents. One private repo can hold several apps’ data in different folders. A public repo would expose everything — the app warns if you pick one. Edits made offline are queued and pushed when you reconnect. GitHub keeps history, so deleted data remains in old commits until the repo itself is deleted.'))),
   );
   openId = null;
   refresh();

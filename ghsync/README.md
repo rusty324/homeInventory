@@ -75,7 +75,7 @@ The token never leaves the browser except in requests to `api.github.com`.
 | `encrypted` | | Collections encrypted when the user sets a password. |
 | `encryptPath(path)` | | Same, for app-owned paths outside `files`. |
 | `migrate` | | `{ collection: (record) => record }`, applied on read. |
-| `defaultRepo` | | `{owner, repo, branch}`, or `null` (default) for local-only. |
+| `defaultRepo` | | `{owner, repo, branch, dir}`, or `null` (default) for local-only. |
 | `extraPaths()` | | App-owned paths to include when re-encrypting or seeding. |
 | `onRefresh()` | | Hook at the end of `refresh()` for app-owned directories. |
 | `retryMs` | | Dirty-queue retry interval, default 30s. `0` disables. |
@@ -92,6 +92,18 @@ Sharded or workflow-written data (say `data/activities/2026-07.json` written by
 a scheduled Action) stays out of `files`. Use `refreshDir(dir, nameMatch)` to
 pull a directory into the cache, `readFile`/`writeFile` for individual paths,
 and declare them in `extraPaths()` so encryption migrations cover them.
+
+## Choosing a folder in the data repo
+
+Apps address files by logical paths under `data/` (`data/notes.json`). The
+user-facing data-repo config has a `dir` — the folder that `data/` maps to in
+the repo: `data` by default, any nested path, or `/` for the root. So one
+private repo can hold several apps side by side (`notes/`, `fitness/`). The
+mapping lives in the client (`github-api.js`); cache keys, `files`,
+`encryptPath` and `listDir` results all stay logical, so changing the folder
+needs no app changes. Changing it doesn't move files: re-seed with
+`pushAllData()`. `client.validate()` returns `{ private }`, and the settings UI
+warns when the repo is public.
 
 ## The one rule: every file has exactly one writer
 
