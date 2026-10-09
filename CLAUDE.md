@@ -22,6 +22,10 @@ See README.md for the feature overview and layout.
   `js/sync.js` converts them on read, so code may assume the object shape.
   A handle tie is `tiedBelow: true` on the upper single-pole breaker only;
   the lower one's tie is derived (`tiedAbove` in `js/breakers.js`).
+- Hover help: every form field needs a help text. Texts live in `js/tips.js`,
+  one table per form, keyed by the field's label; pass the table to
+  `openModal({ tips })`. Adding or renaming a field label means adding or
+  renaming its entry, or the field silently gets no tooltip.
 - Each tab module exports `mount(root)` (build toolbar once) and `refresh()`
   (re-render results from the store). `main.js` calls `refresh()` on store
   changes, deferred while a dialog is open.

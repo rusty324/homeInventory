@@ -604,6 +604,48 @@ try {
     check(over <= 0, `no horizontal page scroll on ${tab} at 375px`);
   }
 
+  step('Hover help');
+  {
+    const p = A.page;
+    await p.setViewportSize({ width: 1100, height: 900 });
+    await p.click('[data-tab=breakers]');
+    await p.getByRole('button', { name: '+ Breaker' }).click();
+    const amps = fieldIn(p, 'Amps').locator('input');
+    const tipEl = p.locator('#tooltip');
+    const shown = () => tipEl.evaluate((t) => (t.popover ? t.matches(':popover-open') : !t.hidden)).catch(() => false);
+    await p.mouse.move(0, 0);
+    await amps.hover();
+    await p.waitForTimeout(500);
+    check(!(await shown()), 'no tooltip before ~1 s of hovering');
+    check(await until(shown, 1500), 'tooltip appears after hovering a field');
+    check((await tipEl.textContent()).includes('number on the handle'), 'tooltip explains that field (Amps)');
+    const geo = await p.evaluate(() => {
+      const t = document.getElementById('tooltip').getBoundingClientRect();
+      const f = [...document.querySelectorAll('dialog[open] .field')].find((x) => x.querySelector('.field-label, label')?.textContent.trim() === 'Amps').getBoundingClientRect();
+      const top = document.elementFromPoint(t.left + t.width / 2, t.top + t.height / 2);
+      return { clear: t.bottom <= f.top + 1 || t.top >= f.bottom - 1, onTop: top?.id === 'tooltip' || !!top?.closest?.('#tooltip') || getComputedStyle(document.getElementById('tooltip')).pointerEvents === 'none', inView: t.left >= 0 && t.right <= innerWidth && t.top >= 0 };
+    });
+    check(geo.clear && geo.inView, 'tooltip sits beside the field, inside the window');
+    await amps.focus();
+    await p.keyboard.type('3');
+    check(!(await shown()), 'typing hides the tooltip');
+    await p.keyboard.type('0');
+    await p.waitForTimeout(1500);
+    check(!(await shown()), 'it stays hidden while you keep typing in that field');
+    await fieldIn(p, 'Label').locator('input').hover();
+    check(await until(async () => (await shown()) && (await tipEl.textContent()).includes('panel door'), 2000), 'moving to another field shows that field’s help');
+    await amps.hover();
+    check(await until(async () => (await shown()) && (await tipEl.textContent()).includes('number on the handle'), 2000), 'coming back to the field shows its help again');
+    await p.mouse.move(5, 5);
+    check(await until(async () => !(await shown()), 1000), 'leaving the field hides it');
+    await p.keyboard.press('Escape');
+    const phone = await browser.newContext(devices['iPhone 13']);
+    const pp = await phone.newPage();
+    await pp.goto(BASE);
+    check(await pp.locator('#tooltip').count() === 0, 'no hover tooltips on a touch phone');
+    await phone.close();
+  }
+
   step('iPhone: no zoom on focus');
   // iOS Safari zooms into any focused field under 16px. On a touch phone every
   // text field — including inside dialogs — must be at least 16px.

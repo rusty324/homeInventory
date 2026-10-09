@@ -3,6 +3,7 @@
 // collection, many pickers.
 
 import { h, uid, input, textarea, field, select, setOptions, suggestInput, openModal, confirmDialog, toast, byText, clear } from './ui.js';
+import { ROOM_TIPS } from './tips.js';
 import { store, saveRecord } from './sync.js';
 
 export const rooms = () => store.get('rooms').slice().sort((a, b) =>
@@ -79,6 +80,7 @@ export function editRoom(room = null) {
     const notes = textarea(room?.notes);
     const m = openModal({
       title: room ? 'Edit room' : 'New room',
+      tips: ROOM_TIPS,
       body: h('div', { class: 'form-grid' },
         field('Name', name),
         field('Property', property, { hint: 'Optional — only needed with more than one property' }),

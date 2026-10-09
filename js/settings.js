@@ -5,6 +5,7 @@ import { h, clear, toast, confirmDialog } from './ui.js';
 import { syncSections, setupRows } from '../ghsync/settings-ui.js';
 import { store, pendingUploads } from './sync.js';
 import { roomsManager } from './rooms.js';
+import { SETTINGS_TIPS } from './tips.js';
 
 let root;
 let openId = null;
@@ -12,6 +13,7 @@ let live = null; // nodes a background refresh may update in place
 
 export function mount(el) {
   root = el;
+  root.tips = SETTINGS_TIPS;
   render();
 }
 

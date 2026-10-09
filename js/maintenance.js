@@ -9,6 +9,7 @@ import {
   h, uid, input, textarea, field, select, setOptions, suggestInput, openModal, confirmDialog,
   toast, matches, byText, clear, emptyState, segmented, money, shortDate,
 } from './ui.js';
+import { TASK_TIPS, DONE_TIPS } from './tips.js';
 import { store, saveRecord } from './sync.js';
 import { roomName, roomSelect } from './rooms.js';
 import { docLinks } from './docs-ui.js';
@@ -215,6 +216,7 @@ export function markDone(t) {
   const cost = input('', { type: 'number', min: 0, step: '0.01', inputmode: 'decimal', placeholder: '0.00' });
   openModal({
     title: `Done: ${t.name}`,
+    tips: DONE_TIPS,
     body: h('div', { class: 'form-grid' },
       field('Date', date), field('Cost ($)', cost), field('Note', note, { wide: true })),
     saveLabel: 'Log it',
@@ -278,6 +280,7 @@ export function editTask(task = null, preset = null) {
 
   openModal({
     title: task ? 'Edit task' : 'New task',
+    tips: TASK_TIPS,
     wide: true,
     body: h('div', { class: 'form-grid' },
       field('Task', name, { wide: true }),

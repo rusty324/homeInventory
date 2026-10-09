@@ -10,6 +10,7 @@ import {
   h, uid, input, textarea, field, select, setOptions, suggestInput, openModal, confirmDialog,
   toast, matches, byText, clear, emptyState, segmented,
 } from './ui.js';
+import { BREAKER_TIPS, PANEL_TIPS, LEGEND_TIPS } from './tips.js';
 import { store, saveRecord } from './sync.js';
 import { rooms, roomName, roomMultiPicker, properties } from './rooms.js';
 
@@ -337,6 +338,7 @@ export function editBreaker(brk = null, panelId = state.panelId, slot = '') {
 
   openModal({
     title: brk ? `Breaker ${slotText(brk)}` : 'New breaker',
+    tips: BREAKER_TIPS,
     wide: true,
     body: h('div', { class: 'form-grid' },
       field('Panel', panelEl),
@@ -417,6 +419,7 @@ export function editPanel(panel = null) {
 
   openModal({
     title: panel ? 'Edit panel' : 'New panel',
+    tips: PANEL_TIPS,
     wide: true,
     body: h('div', { class: 'form-grid' },
       field('Name', name),
@@ -568,6 +571,7 @@ function printLegend(panel) {
   const chk = (k, text) => h('label', { class: 'inline' }, checks[k], ` ${text}`);
   openModal({
     title: `Legend — ${panel.name}`,
+    tips: LEGEND_TIPS,
     wide: true,
     body: h('div', { class: 'legend-dialog' },
       h('div', { class: 'form-grid' },

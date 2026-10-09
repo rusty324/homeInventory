@@ -10,6 +10,9 @@ step, no dependencies. Four tools share one set of rooms:
 | **Inventory** | A sortable table of belongings: name, brand, model #, serial #, acquisition date, cost, description, location, pictures, manuals (web links or uploaded files up to 10 MB), and warranty expiry with details (quick-fill +1/2/3/5 years from purchase). Filter by warranty status. Running total and CSV export for insurance. |
 | **Maintenance** | Recurring or one-time upkeep tasks (HVAC filter, water heater flush, alarm tests…) with an interval, last-done date, parts/supplies, and a log of completions with notes and cost. Grouped into overdue / due soon / later, with an overdue count on the tab. Tasks can link to a room and an inventory item, whose manuals then show on the task. Starter list of common tasks, and an `.ics` export so your calendar does the reminding (a static site can’t send notifications). Inventory warranties ending within 60 days (or ended in the last 30) are listed here too, count toward the tab badge within 30 days, and go into the `.ics` export with an alarm 30 days ahead. |
 
+Rest the mouse on any form field for about a second to see a short
+explanation of it (desktop only; typing hides it).
+
 Feature notes that started this are in [`features/`](features/).
 
 ## Data and sync
@@ -84,6 +87,7 @@ js/maintenance.js   Maintenance tab (+ .ics export)
 js/warranty.js      warranty status/reminders derived from inventory items
 js/dates.js         local calendar-date helpers
 js/settings.js      sync settings, rooms, backup
+js/tips.js          hover help for form fields (+ the help texts)
 ghsync/             vendored sync package
 tests/e2e.mjs       Playwright end-to-end test (GitHub API stubbed)
 ```

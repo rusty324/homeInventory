@@ -9,6 +9,7 @@ import * as breakers from './breakers.js';
 import * as inventory from './inventory.js';
 import * as maintenance from './maintenance.js';
 import * as settings from './settings.js';
+import { initTips } from './tips.js';
 
 const TABS = {
   paint: { title: 'Paint', mod: paint },
@@ -30,6 +31,7 @@ function route() {
   }
   const view = clear($('#view'));
   view.dataset.tab = tab;
+  view.tips = null; // a tab may set its own hover-help table (Settings does)
   TABS[tab].mod.mount(view);
   document.title = `${TABS[tab].title} · Home Records`;
 }
@@ -80,3 +82,4 @@ route();
 renderBadge();
 store.init();
 initBlobs();
+initTips();
