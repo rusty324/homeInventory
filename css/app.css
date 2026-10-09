@@ -277,6 +277,20 @@ dialog.modal > form { display: flex; flex-direction: column; max-height: calc(10
 .modal-foot { display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); flex-wrap: wrap; }
 dialog.confirm .modal-body p { margin: 0; }
 
+/* Hover help for form fields (js/tips.js). Shown as a popover so it sits
+   above open dialogs; ignores the mouse so it never blocks what's under it. */
+#tooltip {
+  position: fixed; inset: auto; margin: 0; z-index: 200;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 7px 10px; border: none; border-radius: 8px;
+  background: var(--text); color: var(--bg);
+  font: 400 0.82rem/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 20%);
+  pointer-events: none;
+  overflow: visible;
+}
+#tooltip[hidden] { display: none; }
+
 #toasts { position: fixed; left: 0; right: 0; bottom: 16px; display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; z-index: 100; }
 .toast { background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 8px; max-width: calc(100vw - 32px); box-shadow: var(--shadow); }
 .toast.error { background: var(--danger); color: #fff; }
@@ -385,7 +399,20 @@ th.num .sort { float: right; }
   color: var(--muted); font: inherit; cursor: pointer; opacity: 0.6;
 }
 .slot-empty:hover { opacity: 1; background: var(--surface); }
-.slot-fill { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.slot-fill { display: flex; flex-direction: column; gap: 3px; min-width: 0; position: relative; }
+/* Handle tie: a bar bridging this breaker to the one in the next row. */
+.slot-fill.tie-down::after {
+  content: ""; position: absolute; left: 50%; bottom: -8px; z-index: 1;
+  width: 16px; height: 12px; transform: translateX(-50%);
+  background: var(--accent); border-radius: 3px; box-shadow: 0 0 0 2px var(--surface-2);
+}
+.brk-tie { color: var(--accent); font-weight: 600; }
+.fixtures-editor { display: flex; flex-direction: column; gap: 6px; }
+.fixture-list { display: flex; flex-direction: column; }
+.fixture-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto; gap: 6px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.fixture-name { font-weight: 600; overflow-wrap: anywhere; }
+.fixture-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto; gap: 6px; align-items: center; }
+@media (max-width: 560px) { .fixture-add { grid-template-columns: 1fr auto; } .fixture-add select { grid-column: 1 / -1; grid-row: 2; } }
 .brk {
   flex: 1; min-width: 0; padding: 5px 8px; border-radius: 6px; cursor: pointer;
   background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow);

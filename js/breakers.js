@@ -10,6 +10,7 @@ import {
   h, uid, input, textarea, field, select, setOptions, suggestInput, openModal, confirmDialog,
   toast, matches, byText, clear, emptyState, segmented,
 } from './ui.js';
+import { BREAKER_TIPS, PANEL_TIPS, LEGEND_TIPS } from './tips.js';
 import { store, saveRecord } from './sync.js';
 import { rooms, roomName, roomMultiPicker, properties } from './rooms.js';
 
@@ -36,9 +37,28 @@ const phaseColor = (panel, row) => (panel.phaseColors || DEFAULT_PHASE)[legs(pan
 const slotsOf = (b) => Array.from({ length: Number(b.poles) || 1 }, (_, i) => Number(b.slot) + 2 * i);
 
 function breakerTitle(b) {
-  return b.label || (b.type === 'Spare' ? 'Spare' : (b.fixtures || []).join(', ') || roomsText(b) || 'Unlabeled');
+  return b.label || (b.type === 'Spare' ? 'Spare' : (b.fixtures || []).map((f) => f.name).join(', ') || roomsText(b) || 'Unlabeled');
 }
 const roomsText = (b) => (b.roomIds || []).map(roomName).join(', ');
+// Fixtures are { name, roomId }; roomId '' means "all of this breaker's rooms".
+const fixtureText = (f) => (f.roomId ? `${f.name} (${roomName(f.roomId)})` : f.name);
+const fixturesText = (b, list = b.fixtures || []) => list.map(fixtureText).join(', ');
+// The fixtures a breaker serves in one room: those assigned to it, plus unassigned ones.
+const fixturesIn = (b, roomId) => (b.fixtures || []).filter((f) => !f.roomId || f.roomId === roomId);
+const servesRoom = (b, roomId) => (b.roomIds || []).includes(roomId) || (b.fixtures || []).some((f) => f.roomId === roomId);
+
+// Handle ties: two single-pole breakers, one directly above the other in the
+// same column, tied so they trip together. Stored once, on the upper breaker.
+const isSingle = (b) => (Number(b.poles) || 1) === 1 && !b.half;
+const tiedBelow = (b) => (b.tiedBelow && isSingle(b)
+  ? breakersIn(b.panelId).find((o) => o.id !== b.id && isSingle(o) && Number(o.slot) === Number(b.slot) + 2) : null);
+const tiedAbove = (b) => (isSingle(b)
+  ? breakersIn(b.panelId).find((o) => o.id !== b.id && o.tiedBelow && isSingle(o) && Number(o.slot) === Number(b.slot) - 2) : null);
+function tieText(b) {
+  if (b.tiedBelow && isSingle(b)) return `⛓ tied to ${Number(b.slot) + 2}${tiedBelow(b) ? '' : ' (no single breaker there yet)'}`;
+  const up = tiedAbove(b);
+  return up ? `⛓ tied to ${up.slot}` : '';
+}
 const slotText = (b) => {
   const s = slotsOf(b);
   return (s.length > 1 ? `${s[0]}/${s.slice(1).join('/')}` : `${s[0]}`) + (b.half || '');
@@ -47,7 +67,7 @@ const ratingText = (b) => [b.amps ? `${b.amps}A` : '', (Number(b.poles) || 1) > 
 
 function searchHit(b) {
   const fed = panelById(b.feedsPanelId);
-  return matches(state.q, b.label, b.type, b.notes, b.wireGauge, b.fixtures, roomsText(b), slotText(b), b.amps ? `${b.amps}a` : '', fed?.name);
+  return matches(state.q, b.label, b.type, b.notes, b.wireGauge, fixturesText(b), roomsText(b), slotText(b), b.amps ? `${b.amps}a` : '', fed?.name, tieText(b));
 }
 
 // Lay out a panel: for each side, which group of breakers starts at which row
@@ -155,6 +175,7 @@ function breakerCell(b, panel) {
       badge ? h('span', { class: `badge t-${badge.toLowerCase()}` }, badge) : null),
     h('div', { class: 'brk-label' }, breakerTitle(b)),
     roomsText(b) && b.label ? h('div', { class: 'brk-sub' }, roomsText(b)) : null,
+    tieText(b) ? h('div', { class: 'brk-sub brk-tie' }, tieText(b)) : null,
     fed ? h('a', { class: 'brk-sub', href: '#breakers', onclick: (e) => { e.preventDefault(); e.stopPropagation(); state.panelId = fed.id; refresh(); } }, `→ ${fed.name}`) : null);
 }
 
@@ -179,7 +200,7 @@ function renderPanel(panel) {
   }
   for (const g of placed) {
     grid.append(h('div', {
-      class: `slot-fill${g.items.length > 1 ? ' tandem' : ''}${g.span > 1 ? ' multi' : ''}`,
+      class: `slot-fill${g.items.length > 1 ? ' tandem' : ''}${g.span > 1 ? ' multi' : ''}${g.items.some((b) => b.tiedBelow && isSingle(b)) ? ' tie-down' : ''}`,
       style: `grid-row:${g.row} / span ${g.span};grid-column:${g.side + 2}`,
     }, g.items.map((b) => breakerCell(b, panel))));
   }
@@ -192,13 +213,15 @@ function renderPanel(panel) {
   }
 }
 
-function listRow(b, showPanel = false) {
+// roomId: when listing under one room, show only that room's fixtures.
+function listRow(b, showPanel = false, roomId = '') {
   const p = panelById(b.panelId);
+  const fx = roomId ? fixturesIn(b, roomId).map((f) => f.name).join(', ') : fixturesText(b); // no "(Kitchen)" under the Kitchen heading
   return h('div', { class: 'list-row tappable', onclick: () => editBreaker(b) },
     h('span', { class: 'slot-pill', style: p ? `--c:${phaseColor(p, rowOfSlot(Number(b.slot)))}` : '' }, slotText(b)),
     h('div', { class: 'row-main' },
       h('div', { class: 'row-title' }, breakerTitle(b)),
-      h('div', { class: 'row-sub' }, [showPanel ? panelLabel(p) : '', ratingText(b), b.type !== 'Standard' ? b.type : '', b.wireGauge, roomsText(b), (b.fixtures || []).join(', ')].filter(Boolean).join(' · '))));
+      h('div', { class: 'row-sub' }, [showPanel ? panelLabel(p) : '', ratingText(b), b.type !== 'Standard' ? b.type : '', tieText(b), b.wireGauge, roomId ? '' : roomsText(b), fx].filter(Boolean).join(' · '))));
 }
 
 function renderList() {
@@ -213,12 +236,12 @@ function renderRooms() {
   const all = store.get('breakers').filter(searchHit);
   const sections = [];
   for (const r of rooms()) {
-    const bs = all.filter((b) => (b.roomIds || []).includes(r.id));
+    const bs = all.filter((b) => servesRoom(b, r.id));
     if (!bs.length) continue;
     sections.push(h('section', { class: 'room-block' }, h('header', { class: 'room-head' }, h('h3', {}, roomName(r.id))),
-      bs.sort(byText((b) => `${panelById(b.panelId)?.name} ${String(b.slot).padStart(3, '0')}`)).map((b) => listRow(b, true))));
+      bs.sort(byText((b) => `${panelById(b.panelId)?.name} ${String(b.slot).padStart(3, '0')}`)).map((b) => listRow(b, true, r.id))));
   }
-  const unassigned = all.filter((b) => !(b.roomIds || []).length && b.type !== 'Spare');
+  const unassigned = all.filter((b) => !(b.roomIds || []).length && !(b.fixtures || []).some((f) => f.roomId) && b.type !== 'Spare');
   if (unassigned.length) {
     sections.push(h('section', { class: 'room-block' }, h('header', { class: 'room-head' }, h('h3', {}, 'No room assigned')),
       unassigned.map((b) => listRow(b, true))));
@@ -228,35 +251,73 @@ function renderRooms() {
 
 // ---------- editors ----------
 
+// Fixtures & loads, each optionally pinned to one room.
+// -> { el, value(): [{ name, roomId }] }
 function fixturesEditor(values) {
-  let list = [...(values || [])];
-  const known = [...new Set([...FIXTURES, ...store.get('breakers').flatMap((b) => b.fixtures || [])])].sort();
+  let list = (values || []).map((f) => ({ ...f }));
+  const known = [...new Set([...FIXTURES, ...store.get('breakers').flatMap((b) => (b.fixtures || []).map((f) => f.name))])].sort();
+  const ALL = '— all of this breaker’s rooms —';
+  const roomChoices = () => [['', ALL], ...rooms().map((r) => [r.id, roomName(r.id)])];
   const sug = suggestInput('', known, { placeholder: 'Add fixture or load…', 'aria-label': 'Add fixture' });
-  const box = h('div', { class: 'chips' });
+  const newRoom = select(roomChoices(), '', { 'aria-label': 'Room for new fixture' });
+  const rows = h('div', { class: 'fixture-list' });
   const add = () => {
-    const v = sug.input.value.trim();
-    if (v && !list.includes(v)) list.push(v);
+    const name = sug.input.value.trim();
+    if (!name) return;
+    const existing = list.find((f) => f.name === name && f.roomId === newRoom.value);
+    if (!existing) list.push({ name, roomId: newRoom.value });
     sug.input.value = '';
+    newRoom.value = ''; // back to "all rooms", so the next fixture isn't pinned by accident
     render();
     sug.input.focus();
   };
   sug.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
-  sug.input.addEventListener('change', () => { if (known.includes(sug.input.value)) add(); });
   function render() {
-    box.replaceChildren(...list.map((f) => h('span', { class: 'chip' }, f,
-      h('button', { type: 'button', 'aria-label': `Remove ${f}`, onclick: () => { list = list.filter((x) => x !== f); render(); } }, '✕'))),
-    sug, h('button', { type: 'button', class: 'btn small secondary', onclick: add }, 'Add'));
+    rows.replaceChildren(...list.map((f) => {
+      const roomEl = select(roomChoices(), f.roomId || '', { 'aria-label': `Room for ${f.name}` });
+      roomEl.addEventListener('change', () => { f.roomId = roomEl.value; });
+      return h('div', { class: 'fixture-row' },
+        h('span', { class: 'fixture-name' }, f.name),
+        roomEl,
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Remove ${f.name}`, onclick: () => { list = list.filter((x) => x !== f); render(); } }, '✕'));
+    }));
   }
   render();
-  return { el: box, value: () => { const pending = sug.input.value.trim(); if (pending && !list.includes(pending)) list.push(pending); return [...list]; } };
+  return {
+    el: h('div', { class: 'fixtures-editor' },
+      rows,
+      h('div', { class: 'fixture-add' }, sug, newRoom, h('button', { type: 'button', class: 'btn small secondary', onclick: add }, 'Add'))),
+    value: () => {
+      if (sug.input.value.trim()) add(); // typed but never pressed Add
+      return list.map(({ name, roomId }) => ({ name, roomId: roomId || '' }));
+    },
+  };
 }
 
 export function editBreaker(brk = null, panelId = state.panelId, slot = '') {
   const b = brk || { id: uid(), panelId, slot, poles: 1, half: '', amps: 20, type: 'Standard', roomIds: [], fixtures: [], labelScale: 1 };
   const panelEl = select(panels().map((p) => [p.id, panelLabel(p)]), b.panelId);
   const slotEl = input(b.slot, { type: 'number', min: 1, step: 1, required: true });
-  const poles = select([['1', '1-pole'], ['2', '2-pole'], ['3', '3-pole']], String(b.poles || 1));
+  const poles = select([], String(b.poles || 1));
   const half = select([['', 'Full-size'], ['A', 'Tandem — A'], ['B', 'Tandem — B']], b.half || '');
+  // Handle tie to the single breaker directly below (slot + 2), e.g. 8 ⛓ 10.
+  const tie = h('input', { type: 'checkbox' });
+  tie.checked = !!b.tiedBelow;
+  const tieText2 = h('span');
+  const tieField = h('label', { class: 'inline tie-field' }, tie, tieText2);
+  const tieNote = h('span', { class: 'field-hint' });
+  // Poles options name the slots they cover, so "linked with the one below"
+  // is easy to find; the tie checkbox only applies to full-size single poles.
+  const syncSlots = () => {
+    const s = Number(slotEl.value) || 0;
+    const slots = (n) => (s ? Array.from({ length: n }, (_, i) => s + 2 * i).join(' + ') : '');
+    setOptions(poles, [['1', `1-pole${s ? ` (slot ${s})` : ''}`], ['2', `2-pole — one breaker${s ? `, slots ${slots(2)}` : ''}`], ['3', `3-pole${s ? `, slots ${slots(3)}` : ''}`]], poles.value || String(b.poles || 1));
+    const single = poles.value === '1' && !half.value;
+    tieField.hidden = !single;
+    tieText2.textContent = ` Handle-tied to breaker ${s ? s + 2 : '(slot + 2)'} below`;
+    const above = s && single ? breakersIn(panelEl.value).find((o) => o.id !== b.id && o.tiedBelow && isSingle(o) && Number(o.slot) === s - 2) : null;
+    tieNote.textContent = above ? `Breaker ${above.slot} above is handle-tied to this one.` : (single ? 'Two separate breakers that trip together.' : '');
+  };
   const amps = suggestInput(b.amps, AMPS.map(String), { inputmode: 'numeric', placeholder: 'Amps' });
   const type = select(TYPES, b.type || 'Standard');
   const label = input(b.label, { placeholder: 'e.g. Kitchen counter outlets' });
@@ -272,20 +333,24 @@ export function editBreaker(brk = null, panelId = state.panelId, slot = '') {
   const scaleOut = h('output', {}, `${Math.round((b.labelScale ?? 1) * 100)}%`);
   scale.addEventListener('input', () => { scaleOut.textContent = `${Math.round(scale.value * 100)}%`; });
   const notes = textarea(b.notes);
+  for (const el of [slotEl, poles, half, panelEl]) el.addEventListener('input', syncSlots);
+  syncSlots();
 
   openModal({
     title: brk ? `Breaker ${slotText(brk)}` : 'New breaker',
+    tips: BREAKER_TIPS,
     wide: true,
     body: h('div', { class: 'form-grid' },
       field('Panel', panelEl),
       field('Slot', slotEl, { hint: 'First (top) space it occupies' }),
       field('Poles', poles),
       field('Tandem', half),
+      h('div', { class: 'field wide' }, h('span', { class: 'field-label' }, 'Linked breakers'), tieField, tieNote),
       field('Amps', amps),
       field('Type', type),
       field('Label', label, { wide: true }),
       field('Rooms', roomsPick.el, { wide: true }),
-      field('Fixtures & loads', fixtures.el, { wide: true }),
+      field('Fixtures & loads', fixtures.el, { wide: true, hint: 'Pick a room for a fixture that’s only in one of the breaker’s rooms.' }),
       field('Wire gauge', gauge),
       field('Wire type', wireType),
       field('Feeds sub-panel', feeds),
@@ -308,14 +373,17 @@ export function editBreaker(brk = null, panelId = state.panelId, slot = '') {
         amps: amps.input.value.trim() ? Number(amps.input.value) || amps.input.value.trim() : '',
         type: type.value,
         label: label.value.trim(),
-        roomIds: roomsPick.value(),
         fixtures: fixtures.value(),
+        tiedBelow: poles.value === '1' && !half.value && tie.checked,
         wireGauge: gauge.value,
         wireType: wireType.input.value.trim(),
         feedsPanelId: feeds.value,
         labelScale: Number(scale.value),
         notes: notes.value.trim(),
       };
+      // A fixture's room counts as one of the breaker's rooms.
+      rec.roomIds = [...new Set([...roomsPick.value(), ...rec.fixtures.map((f) => f.roomId).filter(Boolean)])];
+      if (rec.tiedBelow && s + 2 > (Number(panel.spaces) || 40)) { toast(`There is no slot ${s + 2} below in this panel`, 'error'); return false; }
       const mine = new Set(slotsOf(rec));
       const clash = breakersIn(panel.id).find((o) => o.id !== rec.id && slotsOf(o).some((x) => mine.has(x))
         && !(rec.half && o.half && o.half !== rec.half && Number(o.slot) === rec.slot && (Number(o.poles) || 1) === 1 && rec.poles === 1));
@@ -351,6 +419,7 @@ export function editPanel(panel = null) {
 
   openModal({
     title: panel ? 'Edit panel' : 'New panel',
+    tips: PANEL_TIPS,
     wide: true,
     body: h('div', { class: 'form-grid' },
       field('Name', name),
@@ -413,7 +482,7 @@ function legendTable(panel, o) {
   for (const g of placed) for (let i = 1; i < g.span; i++) skip.add(`${g.side}:${g.row + i}`);
   const desc = (g) => g.items.map((b) => h('div', { class: 'lg-item', style: `font-size:${(o.font * (b.labelScale ?? 1)).toFixed(2)}pt` },
     h('span', { class: 'lg-label' }, `${b.half ? `${b.half}: ` : ''}${breakerTitle(b)}`),
-    o.details ? h('span', { class: 'lg-sub' }, [ratingText(b), TYPE_BADGE[b.type], o.rooms && b.label ? roomsText(b) : '', o.wire ? b.wireGauge : ''].filter(Boolean).join(' · ')) : null));
+    o.details ? h('span', { class: 'lg-sub' }, [ratingText(b), TYPE_BADGE[b.type], tieText(b).replace(' (no single breaker there yet)', ''), o.rooms && b.label ? roomsText(b) : '', o.wire ? b.wireGauge : ''].filter(Boolean).join(' · ')) : null));
   const num = (slot, row) => h('td', { class: 'lg-num', style: o.colors ? `border-left-color:${phaseColor(panel, row)}` : '' }, String(slot));
   const tbody = h('tbody');
   for (let r = 1; r <= R; r++) {
@@ -502,6 +571,7 @@ function printLegend(panel) {
   const chk = (k, text) => h('label', { class: 'inline' }, checks[k], ` ${text}`);
   openModal({
     title: `Legend — ${panel.name}`,
+    tips: LEGEND_TIPS,
     wide: true,
     body: h('div', { class: 'legend-dialog' },
       h('div', { class: 'form-grid' },

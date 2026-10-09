@@ -6,6 +6,7 @@ import {
   h, uid, input, textarea, field, select, setOptions, suggestInput, openModal, confirmDialog,
   toast, matches, byText, clear, emptyState, segmented, shortDate,
 } from './ui.js';
+import { PAINT_TIPS } from './tips.js';
 import { store, saveRecord } from './sync.js';
 import { rooms, roomName, roomSelect, editRoom } from './rooms.js';
 import { photoEditor, photoThumb, dropPhotos } from './photo-ui.js';
@@ -225,6 +226,7 @@ export function editPaint(paint = null, presetRoomId = '') {
 
   openModal({
     title: paint ? 'Edit paint' : 'New paint',
+    tips: PAINT_TIPS,
     wide: true,
     body: h('div', { class: 'form-grid' },
       field('Color name', colorName),

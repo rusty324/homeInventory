@@ -8,6 +8,7 @@ import {
   h, uid, input, textarea, field, select, setOptions, suggestInput, openModal, confirmDialog,
   toast, matches, byText, clear, emptyState, money, shortDate,
 } from './ui.js';
+import { ITEM_TIPS } from './tips.js';
 import { store, saveRecord } from './sync.js';
 import { rooms, roomName, roomSelect } from './rooms.js';
 import { photoEditor, photoThumb, dropPhotos } from './photo-ui.js';
@@ -151,6 +152,7 @@ export function editItem(item = null) {
 
   openModal({
     title: item ? 'Edit item' : 'New item',
+    tips: ITEM_TIPS,
     wide: true,
     body: h('div', { class: 'form-grid' },
       field('Name', name, { wide: true }),

@@ -97,8 +97,10 @@ export function suggestInput(value, suggestions, attrs = {}) {
 // ---------- modal ----------
 
 // Opens a <dialog>. `onSave` returns false to keep it open. Returns { close }.
-export function openModal({ title, body, onSave, saveLabel = 'Save', onDelete, deleteLabel = 'Delete', extraActions = [], wide }) {
+// tips: { 'Field label': 'help text' } shown on hover (see tips.js).
+export function openModal({ title, body, onSave, saveLabel = 'Save', onDelete, deleteLabel = 'Delete', extraActions = [], wide, tips }) {
   const dlg = h('dialog', { class: `modal${wide ? ' wide' : ''}` });
+  dlg.tips = tips;
   const close = () => { dlg.close(); };
   dlg.addEventListener('close', () => dlg.remove());
   const form = h('form', { method: 'dialog', novalidate: true },

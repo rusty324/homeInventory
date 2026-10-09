@@ -21,11 +21,19 @@ const files = {
 
 let blobStores = []; // filled right after the store; the hooks below only run later
 
+// Breaker fixtures used to be plain strings; they're now { name, roomId }
+// (roomId '' = all of the breaker's rooms). Old records convert on read and
+// are saved in the new shape the next time they're written.
+const fixtureOf = (f) => (typeof f === 'string' ? { name: f, roomId: '' } : f);
+const migrateBreaker = (b) => (Array.isArray(b.fixtures) && b.fixtures.some((f) => typeof f === 'string')
+  ? { ...b, fixtures: b.fixtures.map(fixtureOf) } : b);
+
 export const store = createStore({
   appId: APP_ID,
   files,
   encrypted: Object.keys(files),
   encryptPath: (path) => blobStores.some((b) => b.owns(path)),
+  migrate: { breakers: migrateBreaker },
   onRefresh: async () => {
     for (const b of blobStores) await b.mirror();
   },
