@@ -14,6 +14,9 @@ See README.md for the feature overview and layout.
   `data/files/<id>.json` via `js/blobs.js`. Use `photoEditor()`/`docsEditor()`
   in forms (they defer uploads to `commit()`), and `dropPhotos()`/`dropDocs()`
   when deleting a record. Render user URLs only through `safeUrl()`.
+- Warranty reminders are derived from `item.warrantyUntil` (see
+  `js/warranty.js`), never stored as maintenance tasks — keep it that way so
+  editing the date on the item is the only thing needed.
 - Each tab module exports `mount(root)` (build toolbar once) and `refresh()`
   (re-render results from the store). `main.js` calls `refresh()` on store
   changes, deferred while a dialog is open.

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Home Records app icon: a house with a wrench. Full-bleed square —
+       iOS and Android apply their own corner rounding/masking. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a8670"/>
+      <stop offset="1" stop-color="#245848"/>
+    </linearGradient>
+    <!-- Wrench cut-outs: the open jaw and the hole in the box end. -->
+    <mask id="wrench-cut" maskUnits="userSpaceOnUse" x="-300" y="-300" width="600" height="600">
+      <rect x="-300" y="-300" width="600" height="600" fill="#fff"/>
+      <rect x="112" y="-23" width="90" height="46" rx="4" fill="#000"/>
+      <circle cx="-118" cy="0" r="20" fill="#000"/>
+    </mask>
+    <g id="wrench">
+      <rect x="-118" y="-25" width="236" height="50" rx="25"/>
+      <circle cx="124" cy="0" r="58"/>
+      <circle cx="-118" cy="0" r="48"/>
+    </g>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <!-- House: chimney, roof and walls in one silhouette, door cut from the wall. -->
+  <path fill="#ffffff" stroke="#ffffff" stroke-width="20" stroke-linejoin="round" d="
+    M 256 96 L 340 167 L 340 112 L 378 112 L 378 199 L 432 245 L 392 245
+    L 392 412 L 120 412 L 120 245 L 80 245 Z"/>
+  <path fill="#2b6b57" d="M 156 412 L 156 332 Q 156 312 176 312 L 202 312 Q 222 312 222 332 L 222 412 Z"/>
+
+  <!-- Wrench across the lower right, outlined in the background colour so it
+       separates from the white house. -->
+  <g transform="translate(322 326) rotate(-45) scale(0.86)">
+    <g mask="url(#wrench-cut)">
+      <use href="#wrench" fill="none" stroke="#245848" stroke-width="22" stroke-linejoin="round"/>
+      <use href="#wrench" fill="#f4b740"/>
+    </g>
+  </g>
+</svg>
