@@ -6,7 +6,7 @@
 // token exist; every request targets the data repo; offline writes queue and
 // flush; 409s merge; encrypted files carry no plaintext) plus the three tools.
 
-import { chromium } from 'playwright';
+import { chromium, devices } from 'playwright';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -496,6 +496,20 @@ try {
     await A.page.waitForTimeout(100);
     const over = await A.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     check(over <= 0, `no horizontal page scroll on ${tab} at 375px`);
+  }
+
+  step('iPhone: no zoom on focus');
+  // iOS Safari zooms into any focused field under 16px. On a touch phone every
+  // text field — including inside dialogs — must be at least 16px.
+  {
+    const phone = await browser.newContext(devices['iPhone 13']);
+    const p = await phone.newPage();
+    await p.goto(`${BASE}#inventory`);
+    await p.getByRole('button', { name: '+ Add your first item' }).click();
+    const small = await p.evaluate(() => [...document.querySelectorAll('input:not([type=checkbox]):not([type=range]):not([type=color]):not([type=file]), select, textarea')]
+      .filter((e) => e.offsetParent && parseFloat(getComputedStyle(e).fontSize) < 16).map((e) => e.getAttribute('aria-label') || e.type));
+    check(small.length === 0, `all fields ≥ 16px on iPhone (too small: ${small.join(', ') || 'none'})`);
+    await phone.close();
   }
 
   step('Console');

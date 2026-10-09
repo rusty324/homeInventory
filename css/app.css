@@ -144,6 +144,12 @@ input[type="checkbox"] { width: auto; }
 input[type="color"] { width: 48px; height: 36px; padding: 2px; }
 input[type="range"] { padding: 0; }
 textarea { resize: vertical; }
+/* iOS Safari zooms the page into any focused field whose text is under 16px.
+   Touch screens get 16px fields instead; desktop keeps the tighter 15px.
+   (Not maximum-scale=1 in the viewport: that would also block pinch-zoom.) */
+@media (pointer: coarse) {
+  input, select, textarea { font-size: 16px; }
+}
 
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 0; min-width: 0; }
 .field-label, .field > label { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
