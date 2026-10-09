@@ -22,9 +22,14 @@ Data saving uses [`ghsync/`](ghsync/) (vendored, see its README). In short:
   `home-data`) and a fine-grained personal access token with access to only
   that repo and **Contents: read and write**. Enter both under ⚙ Settings,
   then press **Upload all local data** once.
-- Records are stored as `data/*.json` in the private repo; each photo is its own
-  file under `data/photos/` (downscaled to a JPEG under ~400 KB), and each
-  uploaded document under `data/files/`. Every device keeps a full local copy
+- **Folder in the repo** (Settings → Data repository) picks where the files go:
+  `data` by default, any nested path like `homeinv` or `records/house`, or `/`
+  for the repo root. One private repo can hold several apps in different
+  folders. Changing it doesn’t move existing files; press **Upload all local
+  data** afterwards. Settings warns if the repo you pick is public.
+- Records are stored as `<folder>/*.json`; each photo is its own file under
+  `<folder>/photos/` (downscaled to a JPEG under ~400 KB), and each uploaded
+  document under `<folder>/files/`. Every device keeps a full local copy
   of photos and files (IndexedDB), so a password change can re-encrypt them.
   For big manuals, a link to the manufacturer’s PDF is the lighter option.
 - Optional password encryption (AES-256-GCM) covers records, photos and files. There
@@ -76,5 +81,6 @@ The test drives the real page in Chromium against an in-memory fake of the
 GitHub Contents API: local-only mode sends nothing, all four tools, seeding a
 repo, encryption (no plaintext in any committed file), files over 1 MB read via
 the raw media type, a second device,
-offline queueing, 409 conflict merges, photo deletion, and no horizontal
-scroll at phone width.
+offline queueing, 409 conflict merges, photo deletion, syncing into a nested
+folder (nothing written outside it), the public-repo warning, and no
+horizontal scroll at phone width.

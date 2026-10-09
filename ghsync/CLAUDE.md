@@ -17,8 +17,9 @@ photo and document files outside the collection model — not this folder.
 
 **Provenance:** vendored from another project. Local changes: chunked base64
 in `crypto.js` and `github-api.js` (the spread form threw a RangeError past
-~100 KB), `client.deleteFile()`, and a raw-media fallback in `getFile()` for
-files over 1 MB. The app's own test is
+~100 KB), `client.deleteFile()`, a raw-media fallback in `getFile()` for
+files over 1 MB, and a configurable data folder (`dir` in the repo config,
+mapped in the client) with a public-repo warning in the settings UI. The app's own test is
 `tests/e2e.mjs`; it drives the real page with the GitHub API stubbed.
 
 ## Files
@@ -143,7 +144,13 @@ It is isomorphic (WebCrypto only), so Node workflows can import the same file.
 - **New collection**: add it to `files`, add it to `encrypted` if personal,
   and that's it — the queue, merge, refresh, and seeding all pick it up.
 - **New GitHub call**: add it to `makeClient` so it inherits `headers()`,
-  `check()`, and the configured-repo guard.
+  `check()`, the configured-repo guard, and the folder mapping — build URLs
+  with `url(path)`, never from `base()` directly, or the call will ignore the
+  user's chosen folder.
+- **Data folder**: app code always uses logical `data/…` paths. `dir` in the
+  data-repo config (`'data'` default, `'/'` root, any nested path; see
+  `normalizeDir`) decides where they land. `listDir` maps results back to
+  logical paths.
 - **Different UI**: `syncSections` returns specs, not markup. Restyle by
   wrapping `spec.body`; reword through the `text` option (`defaultOwner`,
   `repoPlaceholder`, `appRepoNote`, `tokenScopeNote`, `privacyLocked`,

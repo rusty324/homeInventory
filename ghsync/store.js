@@ -16,7 +16,7 @@
 
 import { createCache } from './cache.js';
 import {
-  makeClient, createTokenStore, ConflictError, NotFoundError, AuthError, NotConfiguredError,
+  makeClient, createTokenStore, normalizeDir, ConflictError, NotFoundError, AuthError, NotConfiguredError,
 } from './github-api.js';
 import { encryptJson, decryptJson, isEnvelope } from './crypto.js';
 
@@ -64,19 +64,22 @@ export function createStore(opts) {
   function getDataRepo() {
     try {
       const stored = JSON.parse(localStorage.getItem(REPO_KEY));
-      if (stored?.owner && stored?.repo) return { branch: 'main', ...stored };
+      if (stored?.owner && stored?.repo) return { branch: 'main', dir: 'data', ...stored };
     } catch {
       // fall through to the default
     }
     return defaultRepo;
   }
 
+  // cfg.dir: folder in the repo that holds the app's data/ tree ('' = root).
+  // Throws on an invalid folder before anything is stored.
   function setDataRepo(cfg) {
     if (cfg?.owner && cfg?.repo) {
       localStorage.setItem(REPO_KEY, JSON.stringify({
         owner: cfg.owner.trim(),
         repo: cfg.repo.trim(),
         branch: (cfg.branch || 'main').trim(),
+        dir: normalizeDir(cfg.dir),
       }));
     } else {
       localStorage.removeItem(REPO_KEY);

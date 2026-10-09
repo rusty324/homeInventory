@@ -8,6 +8,8 @@
 // (btn / field / field-row / muted / list-row), styled by ghsync.css if the
 // host has nothing of its own.
 
+import { normalizeDir } from './github-api.js';
+
 export function h(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -30,6 +32,23 @@ export function syncBlocker(store) {
   if (!store.hasDataRepo()) missing.push('a data repository');
   if (!store.hasToken()) missing.push('a GitHub token');
   return missing.length ? `Set ${missing.join(' and ')} first.` : null;
+}
+
+// "owner/repo/folder" for display.
+export function repoLabel(cfg) {
+  if (!cfg?.owner || !cfg?.repo) return '';
+  const dir = normalizeDir(cfg.dir);
+  return `${cfg.owner}/${cfg.repo}${dir === '/' ? ' (root)' : `/${dir}`}`;
+}
+
+// A public data repo publishes everything synced to it, and if it is the repo
+// serving this site, Pages puts the data on the web. Warn loudly. Returns true
+// when it warned.
+export function warnIfPublic(info, toast) {
+  if (info?.private !== false) return false;
+  toast('Warning: that repo is PUBLIC — anything synced there is readable by anyone. '
+    + 'Use a private repo, or at least enable encryption below.', 'error');
+  return true;
 }
 
 // Header badge text/class for the current sync state.
@@ -63,6 +82,20 @@ export function syncSections({ store, toast, onChange = () => {}, reopen = () =>
     const ownerInput = h('input', { value: current?.owner ?? t.defaultOwner, placeholder: 'github-username' });
     const repoInput = h('input', { value: current?.repo ?? '', placeholder: t.repoPlaceholder });
     const branchInput = h('input', { value: current?.branch ?? 'main', placeholder: 'main' });
+    const dirInput = h('input', { value: current ? (current.dir ?? 'data') : 'data', placeholder: 'data', 'aria-label': 'Folder' });
+    const preview = h('p', { class: 'muted', style: 'margin:0' });
+    const showPreview = () => {
+      try {
+        const d = normalizeDir(dirInput.value);
+        preview.textContent = d === '/'
+          ? `Files go in the repo root, e.g. ${t.previewFile}`
+          : `Files go in ${d}/, e.g. ${d}/${t.previewFile}`;
+      } catch (e) {
+        preview.textContent = e.message;
+      }
+    };
+    dirInput.addEventListener('input', showPreview);
+    showPreview();
 
     const blocker = syncBlocker(store);
     const seedBtn = h('button', {
@@ -86,12 +119,21 @@ export function syncSections({ store, toast, onChange = () => {}, reopen = () =>
         toast('Enter an owner and a repo name', 'error');
         return;
       }
-      store.setDataRepo({ owner: ownerInput.value, repo: repoInput.value, branch: branchInput.value });
+      const before = repoLabel(store.getDataRepo());
+      try {
+        store.setDataRepo({ owner: ownerInput.value, repo: repoInput.value, branch: branchInput.value, dir: dirInput.value });
+      } catch (e) {
+        toast(e.message, 'error');
+        return;
+      }
       store.refreshStatus();
+      const moved = before && before !== repoLabel(store.getDataRepo());
       if (store.hasToken()) {
         try {
-          await store.client.validate();
-          toast('Data repo saved — syncing');
+          const info = await store.client.validate();
+          if (!warnIfPublic(info, toast)) {
+            toast(moved ? 'Saved — press “Upload all local data” to copy your data to the new location' : 'Data repo saved — syncing');
+          }
           store.refresh().then(onChange);
         } catch {
           toast('Saved, but GitHub could not reach that repo — check the name and token scope', 'error');
@@ -105,11 +147,11 @@ export function syncSections({ store, toast, onChange = () => {}, reopen = () =>
     return {
       id: 'datarepo',
       name: 'Data repository',
-      state: current?.owner && current?.repo ? `${current.owner}/${current.repo}` : 'not set',
+      state: current?.owner && current?.repo ? repoLabel(current) : 'not set',
       body: h('div', {},
         h('p', { class: 'muted' },
           current?.owner && current?.repo
-            ? `Syncing to ${current.owner}/${current.repo} (branch ${current.branch}). This should be a private repo.`
+            ? `Syncing to ${repoLabel(current)} (branch ${current.branch}). This should be a private repo.`
             : 'Not set — the app is local-only, keeping everything in this browser. '
               + 'Create a private repo on GitHub and enter it here to sync.'),
         h('div', { class: 'field-row' },
@@ -117,6 +159,9 @@ export function syncSections({ store, toast, onChange = () => {}, reopen = () =>
           h('div', { class: 'field' }, h('label', {}, 'Repo'), repoInput),
           h('div', { class: 'field' }, h('label', {}, 'Branch'), branchInput),
         ),
+        h('div', { class: 'field' }, h('label', {}, 'Folder in the repo'), dirInput, preview),
+        h('p', { class: 'muted', style: 'margin:4px 0 0' },
+          'Use “/” for the repo root. Changing the folder doesn’t move existing files — press “Upload all local data” afterwards to write everything to the new folder.'),
         h('div', { class: 'field-row' },
           h('button', { class: 'btn', onclick: save }, 'Save data repo'),
           seedBtn,
@@ -146,8 +191,8 @@ export function syncSections({ store, toast, onChange = () => {}, reopen = () =>
       store.setToken(v);
       store.refreshStatus();
       try {
-        await store.client.validate();
-        toast('Token saved — syncing');
+        const info = await store.client.validate();
+        if (!warnIfPublic(info, toast)) toast('Token saved — syncing');
         store.flushQueue().then(() => store.refresh()).then(onChange);
       } catch (e) {
         toast(e.name === 'NotConfiguredError'
@@ -262,7 +307,7 @@ export function setupRows(store, reveal) {
   const repo = store.getDataRepo();
   return [
     checkRow('Data repository', store.hasDataRepo(),
-      store.hasDataRepo() ? `${repo.owner}/${repo.repo}` : 'not set — tap to configure',
+      store.hasDataRepo() ? repoLabel(repo) : 'not set — tap to configure',
       () => reveal('datarepo')),
     checkRow('GitHub token', store.hasToken(),
       store.hasToken() ? 'saved in this browser' : 'not set — tap to add',
@@ -273,6 +318,7 @@ export function setupRows(store, reveal) {
 const DEFAULT_TEXT = {
   defaultOwner: '',
   repoPlaceholder: 'my-app-data',
+  previewFile: 'notes.json',
   appRepoNote: '',
   tokenScopeNote: 'A fine-grained personal access token scoped to only your private data repo, '
     + 'with Contents read/write. It needs no access to the public repo that serves this app.',
