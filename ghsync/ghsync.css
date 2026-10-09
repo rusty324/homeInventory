@@ -1,0 +1,65 @@
+/* Minimal styling for the ghsync settings UI. Include it only if your app
+   doesn't already define .btn / .field / .muted / .list-row — the markup uses
+   plain class names precisely so an existing design system can style it. */
+
+.gh-settings { max-width: 640px; margin: 0 auto; }
+.gh-settings input {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  font: inherit;
+  background: #fff;
+  color: inherit;
+}
+.gh-settings label { display: block; font-size: 0.85rem; opacity: 0.7; margin-bottom: 4px; }
+.field { margin-bottom: 12px; }
+.field-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.field-row > * { flex: 1 1 110px; min-width: 0; }
+
+.btn {
+  padding: 9px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn.secondary { background: transparent; color: inherit; border-color: #d0d5dd; }
+.btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+.muted { opacity: 0.7; font-size: 0.9rem; }
+
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+.list-row:last-child { border-bottom: none; }
+.row-main { flex: 1; min-width: 0; }
+.row-title { font-weight: 600; overflow-wrap: anywhere; }
+.row-sub { font-size: 0.83rem; opacity: 0.7; overflow-wrap: anywhere; }
+.check-row .mark { width: 1.2em; text-align: center; }
+.check-row .mark.done { color: #16a34a; }
+.tappable { cursor: pointer; }
+
+.settings-section { border: 1px solid #e5e7eb; border-radius: 10px; margin-bottom: 10px; }
+.settings-section > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.settings-section .sec-state { font-weight: 400; opacity: 0.7; }
+.settings-body { padding: 0 12px 12px; }
+
+.gh-badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: #eef2f7; }
+.gh-badge.ok { background: #dcfce7; color: #166534; }
+.gh-badge.pending { background: #fef9c3; color: #854d0e; }
+.gh-badge.error { background: #fee2e2; color: #991b1b; }
