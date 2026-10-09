@@ -105,7 +105,10 @@ export function syncSections({ store, toast, onChange = () => {}, reopen = () =>
         seedBtn.disabled = true;
         try {
           await store.pushAllData();
-          toast('Uploaded all local data to the data repo');
+          // Pushes queue rather than throw on failure, so check what's left.
+          const { status, error } = store.syncStatus();
+          if (status === 'ok') toast('Uploaded all local data to the data repo');
+          else toast(`Upload didn’t finish: ${error?.message || 'some changes are still queued'}. It will retry automatically.`, 'error');
         } catch (e) {
           toast(e.message, 'error');
         }

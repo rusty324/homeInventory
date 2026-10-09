@@ -21,4 +21,5 @@ See README.md for the feature overview and layout.
   (re-render results from the store). `main.js` calls `refresh()` on store
   changes, deferred while a dialog is open.
 - Run `node tests/e2e.mjs` after changes (needs `playwright` resolvable from
-  the repo; `node_modules/` is gitignored).
+  the repo; `node_modules/` is gitignored). After touching sync, also run
+  `node tests/http-cache.mjs` (real HTTPS + browser HTTP cache).

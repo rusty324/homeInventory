@@ -5,6 +5,11 @@
 
 const API = 'https://api.github.com';
 
+// Every read uses cache: 'no-store'. GitHub marks API responses cacheable for
+// 60 s (Cache-Control: private, max-age=60), so a browser would otherwise
+// answer a re-read straight after a write — the conflict-merge path — with the
+// previous sha, and every retry would 409 until the push gave up.
+
 export class NotConfiguredError extends Error {
   constructor() {
     super('No data repository configured — set one in Settings');
@@ -137,11 +142,11 @@ export function makeClient(repoCfgOrGetter, tokens) {
     // (encoding "none"); fetch those again with the raw media type (≤ 100 MB).
     async getFile(path) {
       const u = `${url(path)}?ref=${encodeURIComponent(cfg().branch)}`;
-      const res = await fetch(u, { headers: headers() });
+      const res = await fetch(u, { headers: headers(), cache: 'no-store' });
       await check(res, path);
       const json = await res.json();
       if (json.encoding === 'none' || (!json.content && json.size > 0)) {
-        const raw = await fetch(u, { headers: { ...headers(), Accept: 'application/vnd.github.raw+json' } });
+        const raw = await fetch(u, { headers: { ...headers(), Accept: 'application/vnd.github.raw+json' }, cache: 'no-store' });
         await check(raw, path);
         return { content: await raw.text(), sha: json.sha };
       }
@@ -178,7 +183,7 @@ export function makeClient(repoCfgOrGetter, tokens) {
 
     // -> [{ name, path, sha }] with logical paths ; [] if the directory doesn't exist yet
     async listDir(path) {
-      const res = await fetch(`${url(path)}?ref=${encodeURIComponent(cfg().branch)}`, { headers: headers() });
+      const res = await fetch(`${url(path)}?ref=${encodeURIComponent(cfg().branch)}`, { headers: headers(), cache: 'no-store' });
       if (res.status === 404) return [];
       await check(res, path);
       const json = await res.json();
@@ -204,7 +209,7 @@ export function makeClient(repoCfgOrGetter, tokens) {
 
     // Cheap validity probe for the settings panel. -> { private: boolean }
     async validate() {
-      const res = await fetch(`${API}/repos/${cfg().owner}/${cfg().repo}`, { headers: headers() });
+      const res = await fetch(`${API}/repos/${cfg().owner}/${cfg().repo}`, { headers: headers(), cache: 'no-store' });
       await check(res, 'repo');
       const json = await res.json().catch(() => ({}));
       return { private: json.private !== false };

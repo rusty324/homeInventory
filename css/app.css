@@ -292,6 +292,11 @@ dialog.confirm .modal-body p { margin: 0; }
 .gh-badge.error { background: var(--danger-soft); color: var(--danger); }
 
 #view[data-tab="settings"] { max-width: 680px; }
+.sync-problem {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px;
+  padding: 8px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--pending-text); font-size: 0.9rem;
+}
+.sync-problem span { flex: 1 1 200px; overflow-wrap: anywhere; }
 .settings-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-top: 10px; }
 .settings-section > summary { display: flex; justify-content: space-between; gap: 10px; padding: 12px 14px; cursor: pointer; font-weight: 600; }
 .settings-section .sec-state { font-weight: 400; color: var(--muted); }

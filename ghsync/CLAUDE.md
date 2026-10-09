@@ -19,7 +19,11 @@ photo and document files outside the collection model — not this folder.
 in `crypto.js` and `github-api.js` (the spread form threw a RangeError past
 ~100 KB), `client.deleteFile()`, a raw-media fallback in `getFile()` for
 files over 1 MB, and a configurable data folder (`dir` in the repo config,
-mapped in the client) with a public-repo warning in the settings UI. The app's own test is
+mapped in the client) with a public-repo warning in the settings UI, and
+second-device sync fixes: reads bypass the HTTP cache, a never-loaded
+collection is never written (no more `"null"` files), merges treat a `"null"`
+file as empty, seeding waits for an in-flight refresh, and the settings UI
+reports an unfinished upload instead of claiming success. The app's own test is
 `tests/e2e.mjs`; it drives the real page with the GitHub API stubbed.
 
 ## Files
@@ -161,6 +165,11 @@ It is isomorphic (WebCrypto only), so Node workflows can import the same file.
 There is no build and no unit-testable seam worth mocking; test through the
 real page in Chromium.
 
+`tests/http-cache.mjs` runs a fake api.github.com over real HTTPS with
+GitHub's `Cache-Control: private, max-age=60` headers, so the browser's HTTP
+cache is live — `page.route()` disables it, which is how a stale-read bug hid
+from the main suite. Run it after touching `github-api.js` or the merge path.
+
 `tests/e2e.mjs` at the repo root is this repo's Playwright suite. Extend it
 when you change the core; it drives a real page with `page.route('https://api.github.com/**', …)`
 stubbed: 404 reads so writes create, 201 writes, and record every call so you
@@ -181,6 +190,10 @@ the PUT body.
   and retries later; never overwrite a locked file, that destroys data.
 - **Status stuck on `pending`** — the queue is non-empty. Usually offline, an
   expired token (`AuthError` → `'error'`), or a repo that no longer exists.
+  The app's Settings shows the last error and a "Retry now" button.
+- **HTTP caching** — GitHub API reads are cacheable for 60 s. Every read in
+  `github-api.js` passes `cache: 'no-store'`; a new GET must too, or a
+  read-after-write can return the previous sha and every retry will 409.
 - **A deleted record reappearing** — the merge is per id with local winning, so
   a delete on one device can be resurrected by another device's stale copy.
   Accepted trade-off for a single-user tool; use a tombstone field if it

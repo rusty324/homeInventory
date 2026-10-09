@@ -65,7 +65,12 @@ function rerender() {
 }
 
 store.onChange((e) => {
-  if (e.type === 'sync-status') renderBadge();
+  if (e.type === 'sync-status') {
+    renderBadge();
+    // Settings shows the sync problem inline; its refresh only touches
+    // status text, never the forms, so it's safe to run on every status change.
+    if (current === 'settings') settings.refresh();
+  }
   else rerender();
 });
 
