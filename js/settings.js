@@ -5,6 +5,7 @@ import { h, clear, toast, confirmDialog } from './ui.js';
 import { syncSections, setupRows } from '../ghsync/settings-ui.js';
 import { store, pendingUploads } from './sync.js';
 import { roomsManager } from './rooms.js';
+import { fixturesManager, fixtureList } from './fixtures.js';
 import { SETTINGS_TIPS } from './tips.js';
 
 let root;
@@ -25,6 +26,8 @@ export function refresh() {
   if (!root || !live?.rooms.isConnected) return;
   live.rooms.replaceChildren(roomsManager());
   live.roomCount.textContent = `${store.get('rooms').length}`;
+  live.fixtures.replaceChildren(fixturesManager());
+  if (live.fixtureCount) live.fixtureCount.textContent = `${fixtureList().length}`;
   const pending = pendingUploads();
   live.pending.textContent = `${pending} photo/file change(s) waiting to upload.`;
   live.pending.hidden = !pending;
@@ -63,11 +66,12 @@ function render() {
       },
     }),
     { id: 'rooms', name: 'Rooms & spaces', state: '', body: null },
+    { id: 'fixtures', name: 'Fixtures & loads', state: '', body: null },
     { id: 'backup', name: 'Backup', state: '', body: backupSection() },
   ];
   const problemText = h('span');
   live = {
-    rooms: h('div'), roomCount: null, pending: h('p', { class: 'muted' }), privacy: null, problemText,
+    rooms: h('div'), roomCount: null, fixtures: h('div'), fixtureCount: null, pending: h('p', { class: 'muted' }), privacy: null, problemText,
     problem: h('div', { class: 'sync-problem', role: 'status' }, problemText,
       h('button', { type: 'button', class: 'btn small secondary', onclick: async (e) => {
         e.target.disabled = true;
@@ -90,7 +94,7 @@ function render() {
       open: s.id === openId || keepOpen.includes(s.id),
     },
     h('summary', {}, h('span', { class: 'sec-name' }, s.name), stateNode(s)),
-    h('div', { class: 'settings-body' }, s.id === 'rooms' ? live.rooms : s.body))),
+    h('div', { class: 'settings-body' }, s.id === 'rooms' ? live.rooms : s.id === 'fixtures' ? live.fixtures : s.body))),
     h('details', { class: 'settings-section', dataset: { section: 'help' } },
       h('summary', {}, h('span', { class: 'sec-name' }, 'How syncing works')),
       h('div', { class: 'settings-body' },
@@ -109,6 +113,7 @@ function render() {
 function stateNode(section) {
   const el = h('span', { class: 'sec-state' }, section.state);
   if (section.id === 'rooms') live.roomCount = el;
+  if (section.id === 'fixtures') live.fixtureCount = el;
   if (section.id === 'privacy') live.privacy = el;
   return el;
 }

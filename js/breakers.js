@@ -13,13 +13,13 @@ import {
 import { BREAKER_TIPS, PANEL_TIPS, LEGEND_TIPS } from './tips.js';
 import { store, saveRecord } from './sync.js';
 import { rooms, roomName, roomMultiPicker, properties } from './rooms.js';
+import { fixtureSelect, editFixture } from './fixtures.js';
 
 const TYPES = ['Standard', 'GFCI', 'AFCI', 'Dual function (AFCI/GFCI)', 'HACR', 'Main', 'Spare', 'Surge protector'];
 const TYPE_BADGE = { GFCI: 'GFCI', AFCI: 'AFCI', 'Dual function (AFCI/GFCI)': 'DF', HACR: 'HACR', Main: 'MAIN', Spare: 'SPARE', 'Surge protector': 'SPD' };
 const AMPS = [10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 125, 150, 175, 200];
 const GAUGES = ['14 AWG', '12 AWG', '10 AWG', '8 AWG', '6 AWG', '4 AWG', '3 AWG', '2 AWG', '1 AWG', '1/0 AWG', '2/0 AWG', '3/0 AWG', '4/0 AWG'];
 const WIRE_TYPES = ['NM-B (Romex)', 'UF-B', 'THHN/THWN in conduit', 'MC cable', 'AC (BX)', 'SER', 'Aluminum SER', 'XHHW'];
-const FIXTURES = ['Outlets', 'Lights', 'Ceiling fan', 'Refrigerator', 'Dishwasher', 'Disposal', 'Microwave', 'Range / oven', 'Cooktop', 'Washer', 'Dryer', 'Water heater', 'Furnace', 'AC condenser', 'Heat pump', 'Sump pump', 'Well pump', 'Garage door opener', 'Bathroom fan', 'Smoke detectors', 'EV charger', 'Hot tub', 'Subpanel'];
 const DEFAULT_PHASE = ['#1f2937', '#dc2626', '#2563eb'];
 const VOLTAGES = ['120/240V split-phase', '120/208V three-phase', '277/480V three-phase', '120V'];
 
@@ -122,7 +122,7 @@ export function mount(root) {
     h('div', { class: 'toolbar filters' },
       panelSel,
       h('button', { class: 'btn secondary', onclick: () => editPanel() }, '+ Panel'),
-      segmented([{ value: 'panel', label: 'Panel' }, { value: 'list', label: 'List' }, { value: 'rooms', label: 'By room' }],
+      segmented([{ value: 'panel', label: 'Panel' }, { value: 'list', label: 'List' }, { value: 'rooms', label: 'By room' }, { value: 'fixtures', label: 'By fixture' }],
         state.view, (v) => { state.view = v; refresh(); })),
     results);
   refresh();
@@ -142,6 +142,7 @@ export function refresh() {
   }
   if (state.view === 'list') renderList();
   else if (state.view === 'rooms') renderRooms();
+  else if (state.view === 'fixtures') renderFixtures();
   else renderPanel(panelById(state.panelId));
 }
 
@@ -214,14 +215,15 @@ function renderPanel(panel) {
 }
 
 // roomId: when listing under one room, show only that room's fixtures.
-function listRow(b, showPanel = false, roomId = '') {
+// where: replaces the rooms/fixtures part of the line (the By fixture view).
+function listRow(b, showPanel = false, roomId = '', where = '') {
   const p = panelById(b.panelId);
-  const fx = roomId ? fixturesIn(b, roomId).map((f) => f.name).join(', ') : fixturesText(b); // no "(Kitchen)" under the Kitchen heading
+  const fx = where || (roomId ? fixturesIn(b, roomId).map((f) => f.name).join(', ') : fixturesText(b)); // no "(Kitchen)" under the Kitchen heading
   return h('div', { class: 'list-row tappable', onclick: () => editBreaker(b) },
     h('span', { class: 'slot-pill', style: p ? `--c:${phaseColor(p, rowOfSlot(Number(b.slot)))}` : '' }, slotText(b)),
     h('div', { class: 'row-main' },
       h('div', { class: 'row-title' }, breakerTitle(b)),
-      h('div', { class: 'row-sub' }, [showPanel ? panelLabel(p) : '', ratingText(b), b.type !== 'Standard' ? b.type : '', tieText(b), b.wireGauge, roomId ? '' : roomsText(b), fx].filter(Boolean).join(' · '))));
+      h('div', { class: 'row-sub' }, [showPanel ? panelLabel(p) : '', ratingText(b), b.type !== 'Standard' ? b.type : '', tieText(b), b.wireGauge, roomId || where ? '' : roomsText(b), fx].filter(Boolean).join(' · '))));
 }
 
 function renderList() {
@@ -249,29 +251,68 @@ function renderRooms() {
   results.append(sections.length ? h('div', {}, sections) : emptyState('No breakers are linked to rooms yet. Edit a breaker and add its rooms.'));
 }
 
+// One section per fixture name (case-insensitive), listing each breaker that
+// feeds it and in which rooms. Search matches per fixture entry, so
+// "lights kitchen" narrows to the kitchen's lights rather than every fixture
+// of any breaker that happens to match.
+function renderFixtures() {
+  const groups = new Map(); // key -> { name, rows: Map(breakerId -> { b, rooms: Set, all: bool }) }
+  for (const b of store.get('breakers')) {
+    for (const f of b.fixtures || []) {
+      const name = (f.name || '').trim();
+      if (!name) continue;
+      const where = f.roomId ? roomName(f.roomId) : roomsText(b);
+      const p = panelById(b.panelId);
+      if (!matches(state.q, name, where, b.label, slotText(b), p?.name, ratingText(b))) continue;
+      const key = name.toLowerCase();
+      if (!groups.has(key)) groups.set(key, { name, rows: new Map() });
+      const g = groups.get(key);
+      if (!g.rows.has(b.id)) g.rows.set(b.id, { b, rooms: new Set(), all: false });
+      const row = g.rows.get(b.id);
+      if (f.roomId) row.rooms.add(f.roomId); else row.all = true;
+    }
+  }
+  const whereText = ({ b, rooms: rs, all }) => {
+    if (all) return roomsText(b) || 'no room set';
+    return [...rs].map(roomName).join(', ');
+  };
+  const sections = [...groups.values()].sort(byText((g) => g.name)).map((g) => {
+    const rows = [...g.rows.values()].sort(byText(({ b }) => `${panelLabel(panelById(b.panelId))} ${String(b.slot).padStart(3, '0')}${b.half || ''}`));
+    return h('section', { class: 'room-block fixture-block' },
+      h('header', { class: 'room-head' }, h('h3', {}, g.name), h('span', { class: 'muted' }, `${rows.length} breaker${rows.length === 1 ? '' : 's'}`),
+        h('span', { class: 'spacer' }),
+        h('button', { class: 'btn small secondary', onclick: () => editFixture(g.name) }, 'Edit')),
+      rows.map((r) => listRow(r.b, true, '', whereText(r))));
+  });
+  const unlisted = store.get('breakers').filter((b) => !(b.fixtures || []).length && b.type !== 'Spare' && searchHit(b))
+    .sort(byText((b) => `${panelLabel(panelById(b.panelId))} ${String(b.slot).padStart(3, '0')}`));
+  if (unlisted.length) {
+    sections.push(h('section', { class: 'room-block' },
+      h('header', { class: 'room-head' }, h('h3', {}, 'No fixtures listed'), h('span', { class: 'muted' }, 'edit a breaker to add its fixtures & loads')),
+      unlisted.map((b) => listRow(b, true))));
+  }
+  results.append(sections.length ? h('div', {}, sections)
+    : emptyState(state.q ? 'No fixtures match.' : 'No fixtures on any breaker yet. Edit a breaker and add its fixtures & loads.'),
+  h('div', { class: 'field-row' }, h('button', { class: 'btn secondary', onclick: () => editFixture() }, '+ New fixture')));
+}
+
 // ---------- editors ----------
 
-// Fixtures & loads, each optionally pinned to one room.
+// Fixtures & loads, each optionally pinned to one room. Pick from your fixture
+// list (or "+ New fixture…", like rooms); the row then gets its own room picker.
 // -> { el, value(): [{ name, roomId }] }
 function fixturesEditor(values) {
   let list = (values || []).map((f) => ({ ...f }));
-  const known = [...new Set([...FIXTURES, ...store.get('breakers').flatMap((b) => (b.fixtures || []).map((f) => f.name))])].sort();
   const ALL = '— all of this breaker’s rooms —';
   const roomChoices = () => [['', ALL], ...rooms().map((r) => [r.id, roomName(r.id)])];
-  const sug = suggestInput('', known, { placeholder: 'Add fixture or load…', 'aria-label': 'Add fixture' });
-  const newRoom = select(roomChoices(), '', { 'aria-label': 'Room for new fixture' });
   const rows = h('div', { class: 'fixture-list' });
-  const add = () => {
-    const name = sug.input.value.trim();
-    if (!name) return;
-    const existing = list.find((f) => f.name === name && f.roomId === newRoom.value);
-    if (!existing) list.push({ name, roomId: newRoom.value });
-    sug.input.value = '';
-    newRoom.value = ''; // back to "all rooms", so the next fixture isn't pinned by accident
-    render();
-    sug.input.focus();
-  };
-  sug.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+  const picker = fixtureSelect({
+    onpick: (name) => {
+      // The same fixture can be listed again for another room, but not twice for "all rooms".
+      if (!list.some((f) => f.name.toLowerCase() === name.toLowerCase() && !f.roomId)) list.push({ name, roomId: '' });
+      render();
+    },
+  });
   function render() {
     rows.replaceChildren(...list.map((f) => {
       const roomEl = select(roomChoices(), f.roomId || '', { 'aria-label': `Room for ${f.name}` });
@@ -284,13 +325,8 @@ function fixturesEditor(values) {
   }
   render();
   return {
-    el: h('div', { class: 'fixtures-editor' },
-      rows,
-      h('div', { class: 'fixture-add' }, sug, newRoom, h('button', { type: 'button', class: 'btn small secondary', onclick: add }, 'Add'))),
-    value: () => {
-      if (sug.input.value.trim()) add(); // typed but never pressed Add
-      return list.map(({ name, roomId }) => ({ name, roomId: roomId || '' }));
-    },
+    el: h('div', { class: 'fixtures-editor' }, rows, h('div', { class: 'fixture-add' }, picker)),
+    value: () => list.map(({ name, roomId }) => ({ name, roomId: roomId || '' })),
   };
 }
 

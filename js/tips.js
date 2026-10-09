@@ -126,12 +126,17 @@ export const BREAKER_TIPS = {
   Type: 'GFCI, AFCI and dual-function breakers have a test button. HACR is rated for heating and air-conditioning. Spare = installed but unused.',
   Label: 'What you’d write on the panel door, e.g. Kitchen counter outlets. Shown on the map and the printed legend.',
   Rooms: 'Rooms this circuit feeds. Used by the By room view and search.',
-  'Fixtures & loads': 'What’s on the circuit: outlets, lights, appliances. Pin a fixture to one room if it’s only there; otherwise leave “all of this breaker’s rooms”.',
+  'Fixtures & loads': 'What’s on the circuit. Pick from your fixture list or “+ New fixture…”, then pin each to one room if it’s only there; otherwise leave “all of this breaker’s rooms”.',
   'Wire gauge': 'Wire size, printed on the cable jacket. Typical copper: 14 AWG on 15 A, 12 AWG on 20 A, 10 AWG on 30 A.',
   'Wire type': 'Cable or conductor type, e.g. NM-B (Romex), MC or THHN in conduit — printed on the jacket.',
   'Feeds sub-panel': 'If this breaker supplies a sub-panel, pick it to link the two panels.',
   'Legend font scale': 'Makes this breaker’s text bigger or smaller on the printed legend only.',
   Notes: 'Anything else: what tripped it last time, surprises found on the circuit…',
+};
+
+export const FIXTURE_TIPS = {
+  Name: 'What the load is, e.g. Pendant lights or Garbage disposal. Renaming it updates every breaker that uses it.',
+  Notes: 'Anything worth knowing: wattage, model, exactly where it is.',
 };
 
 export const PANEL_TIPS = {

@@ -17,6 +17,7 @@ const files = {
   breakers: 'data/breakers.json',
   items: 'data/inventory.json',
   tasks: 'data/maintenance.json',
+  fixtures: 'data/fixtures.json', // your fixture list; breakers refer to fixtures by name
 };
 
 let blobStores = []; // filled right after the store; the hooks below only run later
