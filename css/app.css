@@ -385,7 +385,20 @@ th.num .sort { float: right; }
   color: var(--muted); font: inherit; cursor: pointer; opacity: 0.6;
 }
 .slot-empty:hover { opacity: 1; background: var(--surface); }
-.slot-fill { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.slot-fill { display: flex; flex-direction: column; gap: 3px; min-width: 0; position: relative; }
+/* Handle tie: a bar bridging this breaker to the one in the next row. */
+.slot-fill.tie-down::after {
+  content: ""; position: absolute; left: 50%; bottom: -8px; z-index: 1;
+  width: 16px; height: 12px; transform: translateX(-50%);
+  background: var(--accent); border-radius: 3px; box-shadow: 0 0 0 2px var(--surface-2);
+}
+.brk-tie { color: var(--accent); font-weight: 600; }
+.fixtures-editor { display: flex; flex-direction: column; gap: 6px; }
+.fixture-list { display: flex; flex-direction: column; }
+.fixture-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto; gap: 6px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.fixture-name { font-weight: 600; overflow-wrap: anywhere; }
+.fixture-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto; gap: 6px; align-items: center; }
+@media (max-width: 560px) { .fixture-add { grid-template-columns: 1fr auto; } .fixture-add select { grid-column: 1 / -1; grid-row: 2; } }
 .brk {
   flex: 1; min-width: 0; padding: 5px 8px; border-radius: 6px; cursor: pointer;
   background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow);

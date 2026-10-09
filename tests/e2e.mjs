@@ -271,6 +271,73 @@ try {
   check((await page.locator('#print-root td[rowspan="2"]').count()) >= 1, 'legend spans the 2-pole breaker');
   await page.keyboard.press('Escape');
 
+  // Handle-tied single breakers: 8 ⛓ 10.
+  await page.getByRole('button', { name: 'Add breaker in slot 8', exact: true }).click();
+  const poleOpts = await fieldIn(page, 'Poles').locator('option').allTextContents();
+  check(poleOpts.some((t) => t.includes('slots 8 + 10')), `Poles options name their slots (${poleOpts.join(' | ')})`);
+  check((await dialog(page).locator('.tie-field').textContent()).includes('Handle-tied to breaker 10 below'), 'tie option names the breaker below');
+  await dialog(page).locator('.tie-field input').check();
+  await fieldIn(page, 'Label').locator('input').fill('Hall lights');
+  await dialog(page).getByRole('button', { name: 'Save' }).click();
+  await page.waitForTimeout(150);
+  await page.getByRole('button', { name: 'Add breaker in slot 10', exact: true }).click();
+  check((await dialog(page).locator('.field', { hasText: 'Linked breakers' }).textContent()).includes('Breaker 8 above is handle-tied to this one'), 'lower breaker shows the tie from above');
+  await fieldIn(page, 'Label').locator('input').fill('Hall outlets');
+  await dialog(page).getByRole('button', { name: 'Save' }).click();
+  await page.waitForTimeout(150);
+  check(await page.locator('.slot-fill.tie-down').count() === 1, 'panel map draws the tie between 8 and 10');
+  check((await page.locator('.brk', { hasText: 'Hall lights' }).textContent()).includes('⛓ tied to 10')
+    && (await page.locator('.brk', { hasText: 'Hall outlets' }).textContent()).includes('⛓ tied to 8'), 'both breakers say what they’re tied to');
+  check(await page.locator('.slot-empty').count() === 15, 'tied breakers stay two separate single spaces');
+
+  // Fixtures pinned to rooms: breaker 12 feeds Living Room and Kitchen, lights only in the Kitchen.
+  await page.evaluate(async () => (await import('/js/sync.js')).store.upsert('rooms', { id: 'room-kitchen', name: 'Kitchen' }));
+  await page.getByRole('button', { name: 'Add breaker in slot 12', exact: true }).click();
+  await fieldIn(page, 'Label').locator('input').fill('Kitchen and living');
+  await fieldIn(page, 'Rooms').locator('select').selectOption({ label: 'Living Room' });
+  const fx = dialog(page).locator('.fixtures-editor');
+  await fx.getByLabel('Add fixture').fill('Lights');
+  await fx.getByLabel('Room for new fixture').selectOption({ label: 'Kitchen' });
+  await fx.getByRole('button', { name: 'Add' }).click();
+  await fx.getByLabel('Add fixture').fill('Outlets');
+  await fx.getByRole('button', { name: 'Add' }).click();
+  check(await fx.locator('.fixture-row').count() === 2, 'two fixtures listed with their own room pickers');
+  await dialog(page).getByRole('button', { name: 'Save' }).click();
+  await page.waitForTimeout(150);
+  const saved12 = await page.evaluate(async () => (await import('/js/sync.js')).store.get('breakers').find((b) => b.label === 'Kitchen and living'));
+  check(JSON.stringify(saved12.fixtures) === '[{"name":"Lights","roomId":"room-kitchen"},{"name":"Outlets","roomId":""}]', 'fixtures saved with their rooms');
+  check(saved12.roomIds.includes('room-kitchen') && saved12.roomIds.length === 2, 'a fixture’s room is added to the breaker’s rooms');
+  await page.getByRole('tab', { name: 'By room' }).click();
+  const roomRow = (room) => page.locator('.room-block', { has: page.locator('h3', { hasText: new RegExp(`^${room}$`) }) }).locator('.list-row', { hasText: 'Kitchen and living' });
+  const kitchenSub = await roomRow('Kitchen').locator('.row-sub').textContent();
+  const livingSub = await roomRow('Living Room').locator('.row-sub').textContent();
+  check(kitchenSub.includes('Lights') && kitchenSub.includes('Outlets'), `Kitchen lists both fixtures (${kitchenSub})`);
+  check(!livingSub.includes('Lights') && livingSub.includes('Outlets'), `Living Room lists only the outlets (${livingSub})`);
+  await page.getByPlaceholder('Find a breaker: room, fixture, label…').fill('lights kitchen');
+  check(await page.locator('.list-row', { hasText: 'Kitchen and living' }).count() >= 1, 'search matches a fixture with its room');
+  await page.getByPlaceholder('Find a breaker: room, fixture, label…').fill('');
+
+  // Old records stored fixtures as plain strings: they must still read and display.
+  await page.evaluate(async () => {
+    const { store } = await import('/js/sync.js');
+    const raw = JSON.parse(localStorage.getItem('homeinv.data.data/breakers.json'));
+    raw.push({ id: 'legacy', panelId: raw[0].panelId, slot: 14, poles: 1, amps: 20, type: 'Standard', roomIds: [], fixtures: ['Dishwasher', 'Disposal'] });
+    localStorage.setItem('homeinv.data.data/breakers.json', JSON.stringify(raw));
+    store.emit({ type: 'changed', collection: 'breakers' });
+  });
+  await page.getByRole('tab', { name: 'List' }).click();
+  check((await page.locator('.list-row', { hasText: 'Dishwasher' }).textContent()).includes('Dishwasher, Disposal'), 'legacy string fixtures still display');
+  await page.locator('.list-row', { hasText: 'Dishwasher' }).click();
+  check(await dialog(page).locator('.fixture-row').count() === 2, 'legacy fixtures open in the new editor');
+  await dialog(page).getByRole('button', { name: 'Save' }).click();
+  await page.waitForTimeout(150);
+  const legacyRaw = await page.evaluate(() => JSON.parse(localStorage.getItem('homeinv.data.data/breakers.json')).find((b) => b.id === 'legacy').fixtures);
+  check(JSON.stringify(legacyRaw) === '[{"name":"Dishwasher","roomId":""},{"name":"Disposal","roomId":""}]', 'saving converts legacy fixtures to the new shape');
+  await page.getByRole('tab', { name: 'Panel' }).click();
+  await page.getByRole('button', { name: 'Print legend' }).click();
+  check((await dialog(page).locator('.lg-preview').textContent()).includes('⛓ tied to 10'), 'legend shows the tie');
+  await page.keyboard.press('Escape');
+
   step('Inventory');
   await page.click('a[data-tab=inventory]');
   for (const [name, cost] of [['TV', '899.99'], ['Drill', '129']]) {
