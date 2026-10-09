@@ -22,7 +22,10 @@ const DIR = 'records/my home';
 let PUBLIC = false; // flipped at the end to check the public-repo warning
 
 // ---------- static server ----------
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
+const TYPES = {
+  '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json',
+};
 const server = http.createServer(async (req, res) => {
   const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   const file = path.join(ROOT, p === '/' ? 'index.html' : p);
@@ -161,6 +164,21 @@ const fieldIn = (page, label) => dialog(page).locator('.field', { has: page.loca
 try {
   const A = await newDevice();
   const { page } = A;
+
+  step('Home screen icon');
+  // Every icon the page and manifest point at must load and be the size it claims.
+  const iconCheck = await page.evaluate(async () => {
+    const size = (src) => new Promise((res) => { const i = new Image(); i.onload = () => res(`${i.naturalWidth}x${i.naturalHeight}`); i.onerror = () => res('error'); i.src = src; });
+    const touch = document.querySelector('link[rel=apple-touch-icon]').href;
+    const manifestUrl = document.querySelector('link[rel=manifest]').href;
+    const manifest = await (await fetch(manifestUrl)).json();
+    const icons = await Promise.all(manifest.icons.map(async (ic) => ({ ...ic, got: await size(new URL(ic.src, manifestUrl).href) })));
+    return { touch: await size(touch), standalone: manifest.display, startUrl: manifest.start_url, icons,
+      capable: document.querySelector('meta[name=apple-mobile-web-app-capable]')?.content };
+  });
+  check(iconCheck.touch === '180x180', `apple-touch-icon is 180×180 (${iconCheck.touch})`);
+  check(iconCheck.icons.every((ic) => ic.got !== 'error' && (ic.sizes === 'any' || ic.sizes === ic.got)), `manifest icons load at their declared sizes (${iconCheck.icons.map((i) => `${i.src}=${i.got}`).join(', ')})`);
+  check(iconCheck.standalone === 'standalone' && iconCheck.startUrl === './' && iconCheck.capable === 'yes', 'opens standalone from the home screen');
 
   step('Local-only mode');
   check(await page.locator('#badge').textContent() === 'local only', 'badge says local only');

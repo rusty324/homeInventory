@@ -80,6 +80,7 @@ h3 { font-size: 1rem; margin: 0; }
 }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--accent); flex: 1; }
 .brand span { color: var(--text); }
+.brand-icon { border-radius: 6px; display: block; }
 .tabs { display: flex; gap: 2px; width: 100%; overflow-x: auto; scrollbar-width: none; }
 .tabs a {
   padding: 8px 14px 10px;

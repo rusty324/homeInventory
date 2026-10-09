@@ -47,6 +47,20 @@ Repo **Settings → Pages → Build and deployment → Deploy from a branch**, p
 `main` and `/ (root)`. The site is served from `index.html`; `.nojekyll` makes
 Pages serve the files as-is.
 
+### Add to iPhone home screen
+
+Open the site in **Safari** → Share → **Add to Home Screen**. It gets the
+house-and-wrench icon (`icons/apple-touch-icon.png`) and opens full screen
+without Safari’s toolbars. Android/Chrome use `manifest.webmanifest`.
+
+The home-screen app has **its own storage, separate from Safari’s**, so data
+entered in a Safari tab doesn’t carry over. Connect the data repo in the
+home-screen app (or use Settings → Backup → Restore). Home-screen apps are
+also exempt from Safari’s 7-day cleanup of site data, so they’re the better
+place to keep data on an iPhone.
+
+The icon’s source is `icons/icon.svg`; the PNGs are rendered from it.
+
 To run locally, serve the folder with any static server (ES modules don’t load
 from `file://`), e.g. `python3 -m http.server` and open http://localhost:8000.
 
@@ -54,6 +68,8 @@ from `file://`), e.g. `python3 -m http.server` and open http://localhost:8000.
 
 ```
 index.html          app shell (tabs)
+manifest.webmanifest  home-screen install metadata
+icons/              app icon (icon.svg source + rendered PNGs)
 css/app.css         all styles, light + dark
 js/main.js          routing, sync badge, re-render on change
 js/sync.js          the ghsync store: collections → data/*.json

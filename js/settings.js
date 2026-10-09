@@ -75,7 +75,8 @@ function render() {
           h('li', {}, 'Create a new ', h('strong', {}, 'private'), ' repository on GitHub (e.g. home-data). It can be empty.'),
           h('li', {}, 'GitHub → Settings → Developer settings → Fine-grained tokens → Generate. Repository access: only that repo. Permissions: Contents → Read and write.'),
           h('li', {}, 'Enter the repo and paste the token above, then press “Upload all local data” once.'),
-          h('li', {}, 'On each other device, enter the same repo and a token; data downloads automatically.')),
+          h('li', {}, 'On each other device, enter the same repo and a token; data downloads automatically.'),
+          h('li', {}, 'iPhone: an app added to the Home Screen keeps its own storage, separate from Safari — set up sync there too (or restore a backup).')),
         h('p', { class: 'muted' }, 'Records are stored as JSON in the folder you choose (default data/), with photos/ and files/ subfolders for photos and uploaded documents. One private repo can hold several apps’ data in different folders. A public repo would expose everything — the app warns if you pick one. Edits made offline are queued and pushed when you reconnect. GitHub keeps history, so deleted data remains in old commits until the repo itself is deleted.'))),
   );
   openId = null;

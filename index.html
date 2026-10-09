@@ -5,13 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Home Records</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 15 16 5l12 10v12H4z' fill='%232f6f5e'/%3E%3Crect x='13' y='18' width='6' height='9' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
+<!-- Add to Home Screen: iOS uses the apple-touch-icon (180×180, opaque);
+     Android/Chrome use the manifest. -->
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Home Records">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c211f" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 <header class="app-head">
   <div class="brand">
-    <svg viewBox="0 0 32 32" width="24" height="24" aria-hidden="true"><path d="M4 15 16 5l12 10v12H4z" fill="currentColor"/><rect x="13" y="18" width="6" height="9" fill="var(--bg)"/></svg>
+    <img class="brand-icon" src="icons/icon.svg" width="26" height="26" alt="">
     <span>Home Records</span>
   </div>
   <button id="badge" class="gh-badge" type="button" title="Sync status"></button>
