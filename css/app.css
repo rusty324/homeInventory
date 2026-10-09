@@ -411,8 +411,7 @@ th.num .sort { float: right; }
 .fixture-list { display: flex; flex-direction: column; }
 .fixture-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto; gap: 6px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); }
 .fixture-name { font-weight: 600; overflow-wrap: anywhere; }
-.fixture-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto; gap: 6px; align-items: center; }
-@media (max-width: 560px) { .fixture-add { grid-template-columns: 1fr auto; } .fixture-add select { grid-column: 1 / -1; grid-row: 2; } }
+.fixture-add select { max-width: 320px; }
 .brk {
   flex: 1; min-width: 0; padding: 5px 8px; border-radius: 6px; cursor: pointer;
   background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow);

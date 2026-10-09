@@ -296,12 +296,14 @@ try {
   await fieldIn(page, 'Label').locator('input').fill('Kitchen and living');
   await fieldIn(page, 'Rooms').locator('select').selectOption({ label: 'Living Room' });
   const fx = dialog(page).locator('.fixtures-editor');
-  await fx.getByLabel('Add fixture').fill('Lights');
-  await fx.getByLabel('Room for new fixture').selectOption({ label: 'Kitchen' });
-  await fx.getByRole('button', { name: 'Add' }).click();
-  await fx.getByLabel('Add fixture').fill('Outlets');
-  await fx.getByRole('button', { name: 'Add' }).click();
+  // Picked from the list, like rooms; each row then gets its own room.
+  await fx.getByLabel('Add fixture').selectOption('Lights');
+  await fx.getByLabel('Room for Lights').selectOption({ label: 'Kitchen' });
+  await fx.getByLabel('Add fixture').selectOption('Outlets');
   check(await fx.locator('.fixture-row').count() === 2, 'two fixtures listed with their own room pickers');
+  check(await fx.getByLabel('Room for Outlets').inputValue() === '', 'a newly added fixture defaults to all of the breaker’s rooms');
+  const yours = await fx.getByLabel('Add fixture').locator('optgroup[label="Your fixtures"] option').allTextContents();
+  check(yours.includes('Lights') && yours.includes('Outlets'), 'picking a common fixture adds it to your list');
   await dialog(page).getByRole('button', { name: 'Save' }).click();
   await page.waitForTimeout(150);
   const saved12 = await page.evaluate(async () => (await import('/js/sync.js')).store.get('breakers').find((b) => b.label === 'Kitchen and living'));
@@ -333,7 +335,57 @@ try {
   await page.waitForTimeout(150);
   const legacyRaw = await page.evaluate(() => JSON.parse(localStorage.getItem('homeinv.data.data/breakers.json')).find((b) => b.id === 'legacy').fixtures);
   check(JSON.stringify(legacyRaw) === '[{"name":"Dishwasher","roomId":""},{"name":"Disposal","roomId":""}]', 'saving converts legacy fixtures to the new shape');
+  // By fixture: one section per fixture, each breaker with the rooms it feeds that fixture in.
+  await page.getByRole('tab', { name: 'By fixture' }).click();
+  const fixtureHeads = await page.locator('.fixture-block h3').allTextContents();
+  check(JSON.stringify(fixtureHeads) === '["Dishwasher","Disposal","Lights","Outlets"]', `a section per fixture, alphabetical (${fixtureHeads.join(', ')})`);
+  const fxSub = (name) => page.locator('.fixture-block', { has: page.locator('h3', { hasText: new RegExp(`^${name}$`) }) }).locator('.row-sub').allTextContents();
+  const lightsRows = await fxSub('Lights');
+  check(lightsRows.length === 1 && lightsRows[0].includes('Kitchen') && !lightsRows[0].includes('Living Room'), `Lights: only the Kitchen (${lightsRows})`);
+  const outletRows = await fxSub('Outlets');
+  check(outletRows.length === 1 && outletRows[0].includes('Living Room') && outletRows[0].includes('Kitchen'), `Outlets: all of the breaker’s rooms (${outletRows})`);
+  const unlistedBlock = page.locator('.room-block', { has: page.locator('h3', { hasText: 'No fixtures listed' }) });
+  check((await unlistedBlock.textContent()).includes('Dryer'), 'breakers without fixtures are listed so they can be filled in');
+  await page.getByPlaceholder('Find a breaker: room, fixture, label…').fill('lights kitchen');
+  check(JSON.stringify(await page.locator('.results h3').allTextContents()) === '["Lights"]', 'search narrows to that fixture in that room');
+  await page.getByPlaceholder('Find a breaker: room, fixture, label…').fill('');
+
+  // "+ New fixture…" from inside a breaker, like "+ New room…".
   await page.getByRole('tab', { name: 'Panel' }).click();
+  await page.locator('.brk', { hasText: 'Hall lights' }).click();
+  await dialog(page).locator('.fixtures-editor').getByLabel('Add fixture').selectOption('__new__');
+  await fieldIn(page, 'Name').locator('input').fill('Pendant lights');
+  await dialog(page).getByRole('button', { name: 'Save' }).click();
+  check(await until(async () => (await dialog(page).locator('.fixture-row').allTextContents()).some((t) => t.includes('Pendant lights'))), 'a new fixture is created and added to the breaker');
+  await dialog(page).getByRole('button', { name: 'Save' }).click();
+  await page.waitForTimeout(150);
+
+  // Settings: the list, rename (updates breakers) and delete (removes from breakers).
+  await page.click('[data-tab=settings]');
+  await page.locator('summary', { hasText: 'Fixtures & loads' }).click();
+  const fxSection = page.locator('details[data-section=fixtures]');
+  const listed = await fxSection.locator('.row-title').allTextContents();
+  check(['Dishwasher', 'Disposal', 'Lights', 'Outlets', 'Pendant lights'].every((n) => listed.includes(n)), `Settings lists your fixtures, including ones only used on breakers (${listed.join(', ')})`);
+  await fxSection.locator('.list-row', { hasText: /^Lights/ }).click();
+  check((await dialog(page).textContent()).includes('Used on 1 breaker'), 'the fixture editor says where it’s used');
+  await fieldIn(page, 'Name').locator('input').fill('Ceiling lights');
+  await dialog(page).getByRole('button', { name: 'Save' }).click();
+  await page.waitForTimeout(200);
+  const renamed = await page.evaluate(async () => (await import('/js/sync.js')).store.get('breakers').find((b) => b.label === 'Kitchen and living').fixtures);
+  check(JSON.stringify(renamed) === '[{"name":"Ceiling lights","roomId":"room-kitchen"},{"name":"Outlets","roomId":""}]', 'renaming a fixture updates the breakers using it (room kept)');
+  await fxSection.locator('.list-row', { hasText: 'Disposal' }).click();
+  await dialog(page).getByRole('button', { name: 'Delete' }).click();
+  check((await dialog(page).textContent()).includes('removed from 1 breaker'), 'deleting a used fixture warns first');
+  await dialog(page).getByRole('button', { name: 'Delete' }).click();
+  await page.waitForTimeout(200);
+  const legacyNow = await page.evaluate(async () => (await import('/js/sync.js')).store.get('breakers').find((b) => b.id === 'legacy').fixtures.map((f) => f.name));
+  check(JSON.stringify(legacyNow) === '["Dishwasher"]', 'deleting a fixture removes it from its breakers');
+  check(!(await fxSection.locator('.row-title').allTextContents()).includes('Disposal'), 'and from the list');
+  await page.click('[data-tab=breakers]');
+  await page.getByRole('tab', { name: 'By fixture' }).click();
+  check((await page.locator('.fixture-block h3').allTextContents()).includes('Ceiling lights'), 'By fixture shows the new name');
+  await page.getByRole('tab', { name: 'Panel' }).click();
+
   await page.getByRole('button', { name: 'Print legend' }).click();
   check((await dialog(page).locator('.lg-preview').textContent()).includes('⛓ tied to 10'), 'legend shows the tie');
   await page.keyboard.press('Escape');

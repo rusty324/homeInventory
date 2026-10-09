@@ -20,6 +20,9 @@ See README.md for the feature overview and layout.
 - Breaker `fixtures` are `{ name, roomId }` (`roomId: ''` = all of the
   breaker's rooms). Older records stored plain strings; `migrate.breakers` in
   `js/sync.js` converts them on read, so code may assume the object shape.
+  The fixture list (`js/fixtures.js`) is the `fixtures` collection plus any
+  name already used on a breaker; breakers reference fixtures by name, so
+  renaming/deleting in the list rewrites the breakers (case-insensitive).
   A handle tie is `tiedBelow: true` on the upper single-pole breaker only;
   the lower one's tie is derived (`tiedAbove` in `js/breakers.js`).
 - Hover help: every form field needs a help text. Texts live in `js/tips.js`,
