@@ -307,9 +307,10 @@ function fixturesEditor(values) {
   const roomChoices = () => [['', ALL], ...rooms().map((r) => [r.id, roomName(r.id)])];
   const rows = h('div', { class: 'fixture-list' });
   const picker = fixtureSelect({
-    onpick: (name) => {
-      // The same fixture can be listed again for another room, but not twice for "all rooms".
-      if (!list.some((f) => f.name.toLowerCase() === name.toLowerCase() && !f.roomId)) list.push({ name, roomId: '' });
+    // Starts in the fixture's usual room, if it has one; changeable on its row.
+    onpick: (name, roomId = '') => {
+      // The same fixture can be listed again for another room, but not twice for the same one.
+      if (!list.some((f) => f.name.toLowerCase() === name.toLowerCase() && (f.roomId || '') === roomId)) list.push({ name, roomId });
       render();
     },
   });

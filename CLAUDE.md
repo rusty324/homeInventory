@@ -23,6 +23,8 @@ See README.md for the feature overview and layout.
   The fixture list (`js/fixtures.js`) is the `fixtures` collection plus any
   name already used on a breaker; breakers reference fixtures by name, so
   renaming/deleting in the list rewrites the breakers (case-insensitive).
+  A list entry's optional `roomId` is only the default for new breaker rows;
+  changing it never rewrites existing breakers.
   A handle tie is `tiedBelow: true` on the upper single-pole breaker only;
   the lower one's tie is derived (`tiedAbove` in `js/breakers.js`).
 - Hover help: every form field needs a help text. Texts live in `js/tips.js`,

@@ -1,5 +1,6 @@
 // Fixtures & loads, managed like rooms: a list you add to from any picker
-// ("+ New fixture…"), rename, and delete. Breakers store fixtures by name
+// ("+ New fixture…"), rename, and delete. A fixture may have a usual room:
+// adding it to a breaker starts its row in that room (changeable per breaker). Breakers store fixtures by name
 // ({ name, roomId }), so the list is the saved `fixtures` collection plus any
 // name already used on a breaker; renaming rewrites those breakers, and
 // deleting removes the fixture from them.
@@ -7,6 +8,7 @@
 import { h, uid, input, textarea, field, select, openModal, confirmDialog, toast, byText, clear } from './ui.js';
 import { FIXTURE_TIPS } from './tips.js';
 import { store, saveRecord } from './sync.js';
+import { roomSelect, roomName } from './rooms.js';
 
 // Offered until you add them; picking one adds it to your list.
 export const COMMON_FIXTURES = ['Outlets', 'Lights', 'Ceiling fan', 'Refrigerator', 'Dishwasher', 'Disposal', 'Microwave',
@@ -44,7 +46,8 @@ export async function ensureFixture(name) {
 const NEW = '__new__';
 
 // "+ Add fixture…" select: your fixtures, then common ones you haven't added,
-// then "+ New fixture…". Calls onpick(name) and resets itself.
+// then "+ New fixture…". Calls onpick(name, roomId) — roomId is the
+// fixture's usual room, or '' — and resets itself.
 export function fixtureSelect({ onpick, exclude = () => false } = {}) {
   const el = select([], '', { 'aria-label': 'Add fixture' });
   const fill = () => {
@@ -66,18 +69,18 @@ export function fixtureSelect({ onpick, exclude = () => false } = {}) {
     if (v === NEW) {
       const f = await editFixture();
       fill();
-      if (f) onpick?.(f.name);
+      if (f) onpick?.(f.name, f.roomId);
       return;
     }
     await ensureFixture(v);
     fill();
-    onpick?.(v);
+    onpick?.(v, findFixture(v)?.roomId || '');
   });
   el.refill = fill;
   return el;
 }
 
-// Create (no arg) or edit a fixture by name. Resolves to { name } or null.
+// Create (no arg) or edit a fixture by name. Resolves to { name, roomId } or null.
 export function editFixture(name = '') {
   return new Promise((resolve) => {
     let saved = null;
@@ -85,20 +88,22 @@ export function editFixture(name = '') {
     const used = name ? fixtureUsage(name) : 0;
     const nameEl = input(name, { placeholder: 'e.g. Pendant lights, Garbage disposal' });
     const notes = textarea(existing?.notes || '', { placeholder: 'Optional: wattage, model, where exactly…' });
+    const room = roomSelect(existing?.roomId || '', { noneLabel: '— no particular room —' });
     const m = openModal({
       title: name ? `Edit fixture` : 'New fixture',
       tips: FIXTURE_TIPS,
       body: h('div', { class: 'form-grid' },
         field('Name', nameEl, { wide: true, hint: used ? `Used on ${used} breaker${used === 1 ? '' : 's'} — renaming updates them.` : '' }),
+        field('Room', room, { wide: true, hint: 'Optional. Adding this fixture to a breaker starts it in this room; you can still change it per breaker.' }),
         field('Notes', notes, { wide: true })),
       onSave: async () => {
         const n = nameEl.value.trim();
         if (!n) { toast('Give the fixture a name', 'error'); return false; }
         const clash = fixtureList().find((f) => key(f.name) === key(n) && key(f.name) !== key(name));
         if (clash) { toast(`“${clash.name}” is already on your list`, 'error'); return false; }
-        await saveRecord('fixtures', { ...(existing || { id: uid() }), name: n, notes: notes.value.trim() });
+        await saveRecord('fixtures', { ...(existing || { id: uid() }), name: n, roomId: room.value, notes: notes.value.trim() });
         if (name && n !== name) renameOnBreakers(name, n);
-        saved = { name: n };
+        saved = { name: n, roomId: room.value };
         return true;
       },
       onDelete: name ? async () => {
@@ -140,7 +145,7 @@ export function fixturesManager() {
     ...list.map((f) => h('div', { class: 'list-row tappable', onclick: () => editFixture(f.name) },
       h('div', { class: 'row-main' },
         h('div', { class: 'row-title' }, f.name),
-        h('div', { class: 'row-sub' }, [`${fixtureUsage(f.name)} breaker${fixtureUsage(f.name) === 1 ? '' : 's'}`, f.notes].filter(Boolean).join(' · '))),
+        h('div', { class: 'row-sub' }, [f.roomId ? roomName(f.roomId) : '', `${fixtureUsage(f.name)} breaker${fixtureUsage(f.name) === 1 ? '' : 's'}`, f.notes].filter(Boolean).join(' · '))),
       h('span', { class: 'muted' }, 'Edit'))),
     h('div', { class: 'field-row', style: 'margin-top:10px' },
       h('button', { type: 'button', class: 'btn secondary', onclick: () => editFixture() }, '+ New fixture')));
