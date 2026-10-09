@@ -1,7 +1,8 @@
 // Home inventory: a sortable table of belongings — name, brand, model number,
 // acquisition date, purchase cost, description, location, pictures, and
-// manuals (links or uploaded files) — with a running total and a CSV export
-// for insurance paperwork.
+// manuals (links or uploaded files), and warranty expiry — with a running
+// total and a CSV export for insurance paperwork. Warranties ending soon are
+// also surfaced on the Maintenance tab (see warranty.js).
 
 import {
   h, uid, input, textarea, field, select, setOptions, suggestInput, openModal, confirmDialog,
@@ -11,6 +12,8 @@ import { store, saveRecord } from './sync.js';
 import { rooms, roomName, roomSelect } from './rooms.js';
 import { photoEditor, photoThumb, dropPhotos } from './photo-ui.js';
 import { docsEditor, docLinks, dropDocs, docLabel } from './docs-ui.js';
+import { warrantyStatus, warrantyPill, WARRANTY_SOON_DAYS } from './warranty.js';
+import { today, addInterval } from './dates.js';
 
 const COLUMNS = [
   { key: 'photo', label: '' },
@@ -19,12 +22,21 @@ const COLUMNS = [
   { key: 'model', label: 'Model #' },
   { key: 'acquiredOn', label: 'Acquired' },
   { key: 'cost', label: 'Cost', num: true },
+  { key: 'warrantyUntil', label: 'Warranty' },
   { key: 'location', label: 'Location' },
   { key: 'description', label: 'Description' },
   { key: 'manuals', label: 'Manuals', numericSort: true },
 ];
 
-const state = { q: '', room: '', sort: 'name', dir: 1 };
+const state = { q: '', room: '', warranty: '', sort: 'name', dir: 1 };
+const WARRANTY_FILTERS = [
+  ['', 'Any warranty'], ['covered', 'Under warranty'], ['soon', `Ending within ${WARRANTY_SOON_DAYS} days`],
+  ['expired', 'Warranty ended'], ['none', 'No warranty date'],
+];
+const warrantyMatch = (i) => {
+  const k = warrantyStatus(i).key;
+  return !state.warranty || (state.warranty === 'covered' ? k === 'active' || k === 'soon' : k === state.warranty);
+};
 
 const items = () => store.get('items');
 const locationText = (i) => [roomName(i.roomId), i.locationDetail].filter(Boolean).join(' — ');
@@ -40,8 +52,8 @@ function filtered() {
   const { sort, dir } = state;
   const col = COLUMNS.find((c) => c.key === sort);
   return items()
-    .filter((i) => (!state.room || i.roomId === state.room)
-      && matches(state.q, i.name, i.brand, i.model, i.serial, i.description, locationText(i), i.acquiredOn, (i.manuals || []).map(docLabel)))
+    .filter((i) => (!state.room || i.roomId === state.room) && warrantyMatch(i)
+      && matches(state.q, i.name, i.brand, i.model, i.serial, i.description, locationText(i), i.acquiredOn, i.warrantyNotes, (i.manuals || []).map(docLabel)))
     .sort((a, b) => {
       const va = sortValue(a, sort); const vb = sortValue(b, sort);
       // Blanks always sort last, whichever direction.
@@ -53,6 +65,7 @@ function filtered() {
 
 let results;
 let roomFilter;
+let warrantyFilter;
 
 export function mount(root) {
   results = h('div', { class: 'results' });
@@ -60,9 +73,11 @@ export function mount(root) {
   q.addEventListener('input', () => { state.q = q.value; refresh(); });
   roomFilter = select([], state.room, { 'aria-label': 'Filter by location' });
   roomFilter.addEventListener('change', () => { state.room = roomFilter.value; refresh(); });
+  warrantyFilter = select(WARRANTY_FILTERS, state.warranty, { 'aria-label': 'Filter by warranty' });
+  warrantyFilter.addEventListener('change', () => { state.warranty = warrantyFilter.value; refresh(); });
   root.append(
     h('div', { class: 'toolbar' }, q, h('button', { class: 'btn', onclick: () => editItem() }, '+ Item')),
-    h('div', { class: 'toolbar filters' }, roomFilter,
+    h('div', { class: 'toolbar filters' }, roomFilter, warrantyFilter,
       h('button', { class: 'btn secondary', onclick: exportCsv }, 'Export CSV')),
     results);
   refresh();
@@ -98,6 +113,7 @@ export function refresh() {
     h('td', { class: 'mono' }, i.model || ''),
     h('td', { class: 'nowrap' }, shortDate(i.acquiredOn)),
     h('td', { class: 'num' }, money(i.cost)),
+    h('td', { class: 'nowrap' }, warrantyPill(i)),
     h('td', {}, locationText(i)),
     h('td', { class: 'desc' }, i.description || ''),
     h('td', { class: 'col-docs' }, docLinks(i.manuals, { compact: true })))));
@@ -121,6 +137,17 @@ export function editItem(item = null) {
   const description = textarea(it.description);
   const pics = photoEditor(it.photoIds || []);
   const manuals = docsEditor(it.manuals || []);
+  const warrantyUntil = input(it.warrantyUntil, { type: 'date', 'aria-label': 'Warranty expires' });
+  const warrantyNotes = input(it.warrantyNotes, { placeholder: 'Provider, plan or registration #, claim phone…' });
+  // Quick fill: N years from the acquisition date (or today if there isn't one).
+  const quick = h('div', { class: 'quick-row' },
+    [1, 2, 3, 5].map((n) => h('button', {
+      type: 'button',
+      class: 'btn small secondary',
+      title: `${n} year${n === 1 ? '' : 's'} from the acquisition date`,
+      onclick: () => { warrantyUntil.value = addInterval(acquired.value || today(), n, 'years'); },
+    }, `+${n} yr`)),
+    h('button', { type: 'button', class: 'btn small secondary', onclick: () => { warrantyUntil.value = ''; } }, 'Clear'));
 
   openModal({
     title: item ? 'Edit item' : 'New item',
@@ -135,6 +162,8 @@ export function editItem(item = null) {
       field('Room', room),
       field('Location detail', locationDetail),
       field('Description', description, { wide: true }),
+      h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Warranty expires'), warrantyUntil, quick),
+      field('Warranty details', warrantyNotes, { hint: `Reminders appear under Maintenance ${WARRANTY_SOON_DAYS} days ahead` }),
       field('Pictures (item, receipt, serial plate)', pics.el, { wide: true }),
       field('Manuals & documents', manuals.el, { wide: true })),
     onSave: async () => {
@@ -152,6 +181,8 @@ export function editItem(item = null) {
         roomId: room.value,
         locationDetail: locationDetail.input.value.trim(),
         description: description.value.trim(),
+        warrantyUntil: warrantyUntil.value,
+        warrantyNotes: warrantyNotes.value.trim(),
         photoIds,
         manuals: manualList,
       });
@@ -168,12 +199,12 @@ export function editItem(item = null) {
 }
 
 function exportCsv() {
-  const cols = ['Name', 'Brand', 'Model', 'Serial', 'Acquired', 'Cost', 'Room', 'Location detail', 'Description', 'Photos', 'Manuals'];
+  const cols = ['Name', 'Brand', 'Model', 'Serial', 'Acquired', 'Cost', 'Warranty until', 'Warranty details', 'Room', 'Location detail', 'Description', 'Photos', 'Manuals'];
   const esc = (v) => {
     const s = String(v ?? '');
     return /[",\n\r]/.test(s) || /^[=+\-@]/.test(s) ? `"${(/^[=+\-@]/.test(s) ? `'${s}` : s).replace(/"/g, '""')}"` : s;
   };
-  const rows = filtered().map((i) => [i.name, i.brand, i.model, i.serial, i.acquiredOn, i.cost, roomName(i.roomId), i.locationDetail, i.description, (i.photoIds || []).length,
+  const rows = filtered().map((i) => [i.name, i.brand, i.model, i.serial, i.acquiredOn, i.cost, i.warrantyUntil, i.warrantyNotes, roomName(i.roomId), i.locationDetail, i.description, (i.photoIds || []).length,
     (i.manuals || []).map((d) => (d.kind === 'link' ? d.url : `${docLabel(d)} (uploaded file)`)).join(' | ')]);
   const csv = [cols, ...rows].map((r) => r.map(esc).join(',')).join('\r\n');
   const a = h('a', { href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })), download: `home-inventory-${new Date().toISOString().slice(0, 10)}.csv` });

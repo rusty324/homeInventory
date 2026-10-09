@@ -2,7 +2,8 @@
 // a completion history with notes and costs, links to the room and to the
 // inventory item they concern (so the furnace's manual is one tap away), a
 // starter list of common tasks, and an .ics export so a phone calendar can do
-// the reminding — a static site can't send notifications itself.
+// the reminding — a static site can't send notifications itself. Inventory
+// warranties ending soon are listed here too (see warranty.js).
 
 import {
   h, uid, input, textarea, field, select, setOptions, suggestInput, openModal, confirmDialog,
@@ -11,6 +12,11 @@ import {
 import { store, saveRecord } from './sync.js';
 import { roomName, roomSelect } from './rooms.js';
 import { docLinks } from './docs-ui.js';
+import { today, addInterval, daysBetween } from './dates.js';
+import {
+  warrantiesToShow, warrantyAlertCount, warrantyStatus, warrantyPill, WARRANTY_ALERT_DAYS,
+} from './warranty.js';
+import { editItem } from './inventory.js';
 
 export const CATEGORIES = ['HVAC', 'Plumbing', 'Electrical', 'Safety', 'Appliances', 'Exterior', 'Interior', 'Yard', 'Vehicle', 'Other'];
 const UNITS = [['days', 'days'], ['weeks', 'weeks'], ['months', 'months'], ['years', 'years'], ['once', 'one time']];
@@ -42,28 +48,8 @@ export const PRESETS = [
   ['Exterior', 'Test garage door auto-reverse', 1, 'months', ''],
 ];
 
-// ---------- dates (local calendar days as 'YYYY-MM-DD') ----------
-
-const pad = (n) => String(n).padStart(2, '0');
-const isoOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const parse = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
-export const today = () => isoOf(new Date());
-const daysBetween = (a, b) => Math.round((parse(b) - parse(a)) / 86_400_000);
-
-export function addInterval(iso, n, unit) {
-  const d = parse(iso);
-  n = Number(n) || 1;
-  if (unit === 'days') d.setDate(d.getDate() + n);
-  else if (unit === 'weeks') d.setDate(d.getDate() + 7 * n);
-  else if (unit === 'months' || unit === 'years') {
-    const months = unit === 'years' ? 12 * n : n;
-    const day = d.getDate();
-    d.setDate(1);
-    d.setMonth(d.getMonth() + months);
-    d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); // Jan 31 + 1 month -> Feb 28/29
-  }
-  return isoOf(d);
-}
+// Dates are local calendar days as 'YYYY-MM-DD' (see dates.js).
+export { today, addInterval };
 
 const approxDays = (t) => (Number(t.every) || 1) * ({ days: 1, weeks: 7, months: 30, years: 365 }[t.unit] || 30);
 
@@ -98,6 +84,15 @@ function dueText(s) {
 
 export const tasks = () => store.get('tasks');
 export const overdueCount = () => tasks().filter((t) => statusOf(t).key === 'overdue').length;
+
+// For the tab badge: overdue tasks plus warranties ending within the alert window.
+export function attention() {
+  const overdue = overdueCount();
+  const warranties = warrantyAlertCount();
+  const parts = [overdue && `${overdue} overdue task${overdue === 1 ? '' : 's'}`,
+    warranties && `${warranties} warrant${warranties === 1 ? 'y' : 'ies'} ending within ${WARRANTY_ALERT_DAYS} days`];
+  return { count: overdue + warranties, title: parts.filter(Boolean).join(', ') };
+}
 const itemById = (id) => store.get('items').find((i) => i.id === id);
 
 // ---------- tab ----------
@@ -130,6 +125,7 @@ export function refresh() {
   state.category = catFilter.value;
   clear(results);
   if (!tasks().length) {
+    if (state.view === 'upcoming') renderWarranties();
     results.append(emptyState('Track recurring upkeep — filters, flushing the water heater, testing alarms — and see what’s due.',
       h('div', { class: 'field-row' },
         h('button', { class: 'btn', onclick: openPresets }, 'Pick from common tasks'),
@@ -161,7 +157,25 @@ function taskRow(t) {
       : h('button', { class: 'btn small', onclick: (e) => { e.stopPropagation(); markDone(t); } }, '✓ Done'));
 }
 
+// Inventory warranties ending soon (or just ended). Shown above the task
+// groups; hidden while filtering by a task category.
+function renderWarranties() {
+  if (state.category) return;
+  const list = warrantiesToShow().filter(({ item }) => matches(state.q, item.name, item.brand, item.model, item.warrantyNotes, 'warranty'));
+  if (!list.length) return;
+  results.append(h('section', { class: 'room-block group-warranty' },
+    h('header', { class: 'room-head' }, h('h3', {}, 'Warranties ending'), h('span', { class: 'muted' }, String(list.length))),
+    list.map(({ item, s }) => h('div', { class: 'list-row tappable', onclick: () => editItem(item) },
+      warrantyPill(item),
+      h('div', { class: 'row-main' },
+        h('div', { class: 'row-title' }, item.name),
+        h('div', { class: 'row-sub' }, [`Warranty ${s.days < 0 ? 'ended' : 'until'} ${shortDate(s.until)}`, item.brand, item.model, item.warrantyNotes].filter(Boolean).join(' · ')),
+        item.manuals?.length ? docLinks(item.manuals, { compact: true }) : null),
+      h('button', { class: 'btn small secondary', onclick: (e) => { e.stopPropagation(); editItem(item); } }, 'Open item')))));
+}
+
 function renderUpcoming() {
+  renderWarranties();
   const groups = { overdue: [], soon: [], later: [], done: [], paused: [] };
   for (const t of tasks().filter(visible)) groups[statusOf(t).key].push(t);
   const byDue = (a, b) => (dueDate(a) || '9999').localeCompare(dueDate(b) || '9999') || byText((t) => t.name)(a, b);
@@ -358,7 +372,9 @@ function fold(line) {
   return out.join('\r\n ');
 }
 
-export function buildIcs(list, now = new Date()) {
+// items: inventory items whose warranty end becomes a one-off event with an
+// alarm WARRANTY_ALERT_DAYS ahead.
+export function buildIcs(list, now = new Date(), items = []) {
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   const freq = { days: 'DAILY', weeks: 'WEEKLY', months: 'MONTHLY', years: 'YEARLY' };
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Home Records//Maintenance//EN', 'CALSCALE:GREGORIAN', 'X-WR-CALNAME:Home maintenance'];
@@ -379,15 +395,32 @@ export function buildIcs(list, now = new Date()) {
     if (freq[t.unit]) lines.push(`RRULE:FREQ=${freq[t.unit]};INTERVAL=${Number(t.every) || 1}`);
     lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(t.name)}`, 'TRIGGER:PT9H', 'END:VALARM', 'END:VEVENT');
   }
+  for (const item of items) {
+    const s = warrantyStatus(item);
+    if (s.key === 'none' || s.days < 0) continue;
+    const desc = [[item.brand, item.model].filter(Boolean).join(' '), item.serial && `Serial ${item.serial}`, item.warrantyNotes].filter(Boolean).join('\n');
+    lines.push('BEGIN:VEVENT',
+      `UID:warranty-${item.id}@home-records`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${s.until.replace(/-/g, '')}`,
+      `DTEND;VALUE=DATE:${addInterval(s.until, 1, 'days').replace(/-/g, '')}`,
+      `SUMMARY:${icsText(`Warranty ends: ${item.name}`)}`);
+    if (desc) lines.push(`DESCRIPTION:${icsText(desc)}`);
+    lines.push('CATEGORIES:Warranty');
+    // Alarms: a month ahead (time to claim or extend), and on the day.
+    if (s.days > WARRANTY_ALERT_DAYS) lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(`Warranty ends in ${WARRANTY_ALERT_DAYS} days: ${item.name}`)}`, `TRIGGER:-P${WARRANTY_ALERT_DAYS}D`, 'END:VALARM');
+    lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(`Warranty ends today: ${item.name}`)}`, 'TRIGGER:PT9H', 'END:VALARM', 'END:VEVENT');
+  }
   lines.push('END:VCALENDAR');
   return `${lines.map(fold).join('\r\n')}\r\n`;
 }
 
 function exportIcs() {
   const list = tasks().filter((t) => dueDate(t));
-  if (!list.length) { toast('No scheduled tasks to export', 'error'); return; }
+  const warranties = store.get('items').filter((i) => { const s = warrantyStatus(i); return s.key !== 'none' && s.days >= 0; });
+  if (!list.length && !warranties.length) { toast('No scheduled tasks or upcoming warranty ends to export', 'error'); return; }
   const a = h('a', {
-    href: URL.createObjectURL(new Blob([buildIcs(list)], { type: 'text/calendar' })),
+    href: URL.createObjectURL(new Blob([buildIcs(list, new Date(), warranties)], { type: 'text/calendar' })),
     download: 'home-maintenance.ics',
   });
   document.body.append(a);

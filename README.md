@@ -7,8 +7,8 @@ step, no dependencies. Four tools share one set of rooms:
 | --- | --- |
 | **Paint** | Log every paint color: brand, color code, sheen, base type, tint base, swatch color, coverage/coats notes, and photos of swatches and can labels. Assign each color to any number of rooms and areas (walls, trim, ceiling…). Search by room, color name, color family, or brand; browse by color or by room. |
 | **Breakers** | Multiple panels across one or more properties. A visual panel map (odd slots left, even right) with multi-pole breakers, tandem A/B halves, GFCI / AFCI / dual-function / HACR types, amps, wire gauge and type, custom phase colors for 1-, 2-, and 3-phase panels, and links from a breaker to the sub-panel it feeds. Link breakers to rooms and fixtures, then search “which breaker do I flip?”. Print a legend sized to any paper (letter, A4, 4×6, custom) with per-label font scaling — use the browser’s “Save as PDF”. |
-| **Inventory** | A sortable table of belongings: name, brand, model #, serial #, acquisition date, cost, description, location, pictures, and manuals (web links or uploaded files up to 10 MB). Running total and CSV export for insurance. |
-| **Maintenance** | Recurring or one-time upkeep tasks (HVAC filter, water heater flush, alarm tests…) with an interval, last-done date, parts/supplies, and a log of completions with notes and cost. Grouped into overdue / due soon / later, with an overdue count on the tab. Tasks can link to a room and an inventory item, whose manuals then show on the task. Starter list of common tasks, and an `.ics` export so your calendar does the reminding (a static site can’t send notifications). |
+| **Inventory** | A sortable table of belongings: name, brand, model #, serial #, acquisition date, cost, description, location, pictures, manuals (web links or uploaded files up to 10 MB), and warranty expiry with details (quick-fill +1/2/3/5 years from purchase). Filter by warranty status. Running total and CSV export for insurance. |
+| **Maintenance** | Recurring or one-time upkeep tasks (HVAC filter, water heater flush, alarm tests…) with an interval, last-done date, parts/supplies, and a log of completions with notes and cost. Grouped into overdue / due soon / later, with an overdue count on the tab. Tasks can link to a room and an inventory item, whose manuals then show on the task. Starter list of common tasks, and an `.ics` export so your calendar does the reminding (a static site can’t send notifications). Inventory warranties ending within 60 days (or ended in the last 30) are listed here too, count toward the tab badge within 30 days, and go into the `.ics` export with an alarm 30 days ahead. |
 
 Feature notes that started this are in [`features/`](features/).
 
@@ -65,6 +65,8 @@ js/paint.js         Paint tab
 js/breakers.js      Breakers tab (+ printable legend)
 js/inventory.js     Inventory tab
 js/maintenance.js   Maintenance tab (+ .ics export)
+js/warranty.js      warranty status/reminders derived from inventory items
+js/dates.js         local calendar-date helpers
 js/settings.js      sync settings, rooms, backup
 ghsync/             vendored sync package
 tests/e2e.mjs       Playwright end-to-end test (GitHub API stubbed)

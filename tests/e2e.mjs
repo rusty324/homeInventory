@@ -291,6 +291,24 @@ try {
   const dlSize = opened?.path ? (await fs.stat(await opened.path())).size : null;
   check(opened && (dlSize === null || dlSize === PDF.length), `uploaded manual opens in a new tab (${popup.url().slice(0, 5)}, download ${dlSize})`);
   await popup.close();
+
+  // Warranties: TV via the "+1 yr" quick fill, Drill ending in 20 days.
+  const inDays = (n) => page.evaluate(async (k) => { const d = await import('/js/dates.js'); return d.addInterval(d.today(), k, 'days'); }, n);
+  await page.locator('.data-table tbody tr', { hasText: 'TV' }).click();
+  await dialog(page).getByRole('button', { name: '+1 yr' }).click();
+  const tvUntil = await dialog(page).getByLabel('Warranty expires').inputValue();
+  await fieldIn(page, 'Warranty details').locator('input').fill('LG extended plan #A123');
+  await dialog(page).getByRole('button', { name: 'Save' }).click();
+  await page.locator('.data-table tbody tr', { hasText: 'Drill' }).click();
+  await dialog(page).getByLabel('Warranty expires').fill(await inDays(20));
+  await dialog(page).getByRole('button', { name: 'Save' }).click();
+  await page.waitForTimeout(200);
+  const expectTv = await page.evaluate(async () => { const d = await import('/js/dates.js'); return d.addInterval(d.today(), 1, 'years'); });
+  check(tvUntil === expectTv, '+1 yr quick fill counts from today when there is no acquisition date');
+  check((await page.locator('.data-table tbody tr', { hasText: 'Drill' }).locator('.due-pill').textContent()) === 'Ends in 20d', 'warranty column shows days left');
+  await page.getByLabel('Filter by warranty').selectOption('soon');
+  check(JSON.stringify(await page.locator('.data-table tbody td.strong').allTextContents()) === '["Drill"]', 'warranty filter: ending soon');
+  await page.getByLabel('Filter by warranty').selectOption('');
   check(calls.length === 0, 'still nothing sent to GitHub');
 
   step('Maintenance');
@@ -316,7 +334,10 @@ try {
   await dialog(page).getByRole('button', { name: 'Save' }).click();
   await page.waitForTimeout(200);
   check(await page.locator('.group-overdue .task-row').count() === 1, 'task last done 2 months ago on a monthly schedule is overdue');
-  check((await page.locator('#overdue-count').textContent()) === '1', 'tab shows overdue count');
+  check((await page.locator('#overdue-count').textContent()) === '2', 'tab badge counts the overdue task and the warranty ending in 20 days');
+  check((await page.locator('#overdue-count').getAttribute('title')).includes('1 warranty ending within 30 days'), 'badge tooltip explains the count');
+  const wSection = page.locator('.group-warranty');
+  check((await wSection.locator('.list-row').count()) === 1 && (await wSection.textContent()).includes('Drill'), 'Maintenance lists the warranty ending soon (not the one a year out)');
   await page.locator('.task-row', { hasText: 'HVAC' }).getByRole('button', { name: '✓ Done' }).click();
   await fieldIn(page, 'Cost \\(\\$\\)').locator('input').fill('24.50');
   await fieldIn(page, 'Note').locator('input').fill('16x25x1 MERV 8');
@@ -336,7 +357,10 @@ try {
   await page.getByRole('tab', { name: 'Upcoming' }).click();
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Calendar (.ics)' }).click()]);
   const ics = await fs.readFile(await dl.path(), 'utf8');
-  check((ics.match(/BEGIN:VEVENT/g) || []).length === 3 && ics.includes('RRULE:FREQ=MONTHLY;INTERVAL=3'), 'calendar export has recurring events');
+  check((ics.match(/BEGIN:VEVENT/g) || []).length === 5 && ics.includes('RRULE:FREQ=MONTHLY;INTERVAL=3'), 'calendar export has 3 recurring tasks + 2 warranty ends');
+  const unfolded = ics.replace(/\r\n /g, '');
+  check(unfolded.includes('SUMMARY:Warranty ends: TV') && unfolded.includes(`DTSTART;VALUE=DATE:${tvUntil.replace(/-/g, '')}`) && unfolded.includes('LG extended plan #A123'), 'warranty event on the expiry date with details');
+  check((unfolded.match(/TRIGGER:-P30D/g) || []).length === 1, 'month-ahead alarm only where the end is more than 30 days out');
   check(ics.split('\r\n').every((l) => Buffer.byteLength(l) <= 75) && ics.endsWith('END:VCALENDAR\r\n'), 'calendar lines folded per RFC 5545');
   check(calls.length === 0, 'still nothing sent to GitHub');
 

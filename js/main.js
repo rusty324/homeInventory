@@ -40,12 +40,13 @@ function renderBadge() {
   const badge = $('#badge');
   badge.className = `gh-badge ${cls}`;
   badge.textContent = n && cls !== 'error' ? `${text} · ${n} upload${n === 1 ? '' : 's'} pending` : text;
-  // Overdue maintenance count on its tab, so it's visible from anywhere.
-  const overdue = maintenance.overdueCount();
+  // Overdue tasks + warranties ending soon, on the Maintenance tab, so it's
+  // visible from anywhere.
+  const { count: n2, title } = maintenance.attention();
   const count = $('#overdue-count');
-  count.textContent = overdue ? String(overdue) : '';
-  count.hidden = !overdue;
-  count.title = `${overdue} overdue`;
+  count.textContent = n2 ? String(n2) : '';
+  count.hidden = !n2;
+  count.title = title;
   badge.title = store.syncStatus().error?.message || '';
 }
 
