@@ -6,7 +6,7 @@
 // everything else.
 
 import { createStore } from '../ghsync/store.js';
-import { createBlobStore } from './blobs.js';
+import { createBlobStore } from '../ghsync/blobs.js';
 
 export const APP_ID = 'homeinv'; // localStorage/IndexedDB namespace — unique on <you>.github.io
 

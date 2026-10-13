@@ -16,6 +16,8 @@ public repo (GitHub Pages)          private repo (yours)
 
 Copy the `ghsync/` folder into any project. It has **no dependencies, no build
 step, and no CDN** — native ES modules that GitHub Pages serves verbatim.
+New project? Start with [`START-HERE.md`](START-HERE.md). What changed between
+versions is in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Quick start
 
@@ -86,6 +88,52 @@ syncStatus refreshStatus canSync` · `refresh flushQueue rewriteEncryptedFiles
 pushAllData init` · and the escape hatches `client cache readFile writeFile
 refreshDir push serializeFile deserializeFile isEncryptedPath files`.
 
+### When things go wrong
+
+`save/upsert/remove` reject only when the edit couldn't even be kept locally
+(`StorageFullError` — localStorage is full). Everything about syncing goes to
+`syncStatus()` instead, so the UI shows it once rather than on every write:
+
+| status | meaning | examples (`syncStatus().error`) |
+| --- | --- | --- |
+| `local` | no repo or token: nothing leaves the browser | |
+| `ok` | everything pushed | |
+| `pending` | queued, retried automatically | offline, GitHub 5xx, `RateLimitError` |
+| `error` | needs the user; still queued for "Retry now" | `AuthError`, `RequestError`, `StorageFullError`, `CorruptFileError` |
+
+A file in the repo that isn't valid JSON (`CorruptFileError`) doesn't stop
+the others loading; the local copy of that one is kept until it's fixed.
+
+### Photos and files (`blobs.js`)
+
+Binary attachments don't belong in a collection (localStorage is ~5 MB, and
+every write re-uploads the whole collection file). `createBlobStore` keeps one
+repo file per attachment and a full local copy in IndexedDB; records hold the
+id only.
+
+```js
+import { createBlobStore, processImage } from './ghsync/blobs.js';
+
+let blobs; // the hooks below only run after init()
+const store = createStore({
+  appId: 'notes', files, encrypted: Object.keys(files),
+  encryptPath: (p) => blobs.owns(p),           // encrypted like everything else
+  onRefresh: () => blobs.mirror(),             // pull other devices' files
+});
+blobs = createBlobStore(store, { dbName: 'notes.photos', dir: 'data/photos', kind: 'photos' });
+const { pushAllData, rewriteEncryptedFiles } = store; // so seeding / re-encrypting include them
+store.pushAllData = async () => { await pushAllData(); await blobs.pushAll(true); };
+store.rewriteEncryptedFiles = async (c) => { await rewriteEncryptedFiles(c); await blobs.pushAll(false); };
+blobs.init();
+
+const id = await blobs.add(await processImage(fileInput.files[0])); // JPEG ≤1600px + thumb
+const { full, thumb } = await blobs.urls(id);                        // data: URLs
+await blobs.remove(id);                                              // when deleting the record
+```
+
+`processDocument(file)` does the same for any file up to `MAX_DOC_BYTES`
+(10 MB); `blobs.blob(id)` returns it for download.
+
 ### Data that doesn't fit collections
 
 Sharded or workflow-written data (say `data/activities/2026-07.json` written by
@@ -153,10 +201,19 @@ There is no recovery: a lost password means unreadable data. Say so in your UI.
 4. Point the app at a **new private repo** (a second app should not share the
    first one's data repo, since `pushAllData` seeds the whole `data/` tree).
 
+## Tests
+
+```
+npm i -D playwright                     # or any install resolvable from the project
+node ghsync/tests/ghsync.test.mjs       # core behaviour + race conditions, fake GitHub
+node ghsync/tests/http-cache.test.mjs   # real HTTPS + browser cache (needs openssl, port 443)
+```
+
 Working on this with an AI assistant? `CLAUDE.md` in this folder is the
 agent-facing version — the integration recipe, the invariants that must hold,
 and the failure modes — and Claude Code loads it automatically.
 
 Files: `store.js` (core) · `github-api.js` (Contents API client) · `cache.js`
 (namespaced localStorage) · `crypto.js` (isomorphic AES-GCM) · `settings-ui.js`
-(drop-in panel) · `ghsync.css` · `example/`.
+(drop-in panel) · `blobs.js` (photos/files) · `ghsync.css` · `example/` ·
+`tests/`.

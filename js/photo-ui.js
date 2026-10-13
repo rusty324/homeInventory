@@ -4,7 +4,7 @@
 
 import { h, toast } from './ui.js';
 import { photos } from './sync.js';
-import { processImage } from './blobs.js';
+import { processImage } from '../ghsync/blobs.js';
 
 export function photoThumb(id, { size = '', onclick } = {}) {
   const img = h('img', { class: 'thumb', alt: '' });

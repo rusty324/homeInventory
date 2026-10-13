@@ -8,7 +8,7 @@
 
 import { h, toast, input, clear } from './ui.js';
 import { docs } from './sync.js';
-import { processDocument, MAX_DOC_BYTES } from './blobs.js';
+import { processDocument, MAX_DOC_BYTES } from '../ghsync/blobs.js';
 
 // Only http(s) links are ever rendered as hrefs — a stored "javascript:" URL
 // would otherwise run script on this origin, where the GitHub token lives.

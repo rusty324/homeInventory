@@ -11,7 +11,7 @@ See README.md for the feature overview and layout.
   automatically) and to the backup/restore, which iterates `store.files`.
 - Binary attachments are not collection fields. Records hold `photoIds` or
   `manuals` entries; the bytes live at `data/photos/<id>.json` /
-  `data/files/<id>.json` via `js/blobs.js`. Use `photoEditor()`/`docsEditor()`
+  `data/files/<id>.json` via `ghsync/blobs.js`. Use `photoEditor()`/`docsEditor()`
   in forms (they defer uploads to `commit()`), and `dropPhotos()`/`dropDocs()`
   when deleting a record. Render user URLs only through `safeUrl()`.
 - Warranty reminders are derived from `item.warrantyUntil` (see
@@ -37,3 +37,7 @@ See README.md for the feature overview and layout.
 - Run `node tests/e2e.mjs` after changes (needs `playwright` resolvable from
   the repo; `node_modules/` is gitignored). After touching sync, also run
   `node tests/http-cache.mjs` (real HTTPS + browser HTTP cache).
+- `ghsync/` is also shipped standalone (`node tools/pack-ghsync.mjs` builds
+  `ghsync.zip`), so keep it free of homeInventory specifics. After changing
+  it, run `node ghsync/tests/ghsync.test.mjs` and add a line to
+  `ghsync/CHANGELOG.md`.

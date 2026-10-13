@@ -76,7 +76,6 @@ icons/              app icon (icon.svg source + rendered PNGs)
 css/app.css         all styles, light + dark
 js/main.js          routing, sync badge, re-render on change
 js/sync.js          the ghsync store: collections → data/*.json
-js/blobs.js         photo/document files in the data repo + IndexedDB mirror
 js/photo-ui.js      photo thumbnails and editor
 js/docs-ui.js       manual links/uploads editor and viewer
 js/rooms.js         shared rooms (used by every tool)
@@ -89,8 +88,9 @@ js/warranty.js      warranty status/reminders derived from inventory items
 js/dates.js         local calendar-date helpers
 js/settings.js      sync settings, rooms, backup
 js/tips.js          hover help for form fields (+ the help texts)
-ghsync/             vendored sync package
+ghsync/             vendored sync package (+ blobs.js: photo/document files)
 tests/e2e.mjs       Playwright end-to-end test (GitHub API stubbed)
+tools/pack-ghsync.mjs  builds ghsync.zip to reuse the sync package elsewhere
 ```
 
 ## Tests
@@ -99,6 +99,7 @@ tests/e2e.mjs       Playwright end-to-end test (GitHub API stubbed)
 npm i -D playwright   # or link an existing install into node_modules/
 node tests/e2e.mjs
 node tests/http-cache.mjs   # needs openssl and permission to bind port 443
+node ghsync/tests/ghsync.test.mjs   # the sync package on its own
 ```
 
 The test drives the real page in Chromium against an in-memory fake of the

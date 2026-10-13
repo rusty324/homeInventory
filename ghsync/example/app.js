@@ -74,7 +74,14 @@ $('add-note').addEventListener('click', async () => {
   const text = $('new-note').value.trim();
   if (!text) return;
   $('new-note').value = '';
-  await store.upsert('notes', { id: crypto.randomUUID(), text, createdAt: new Date().toISOString() });
+  try {
+    await store.upsert('notes', { id: crypto.randomUUID(), text, createdAt: new Date().toISOString() });
+  } catch (e) {
+    // Only a local failure rejects (StorageFullError): sync problems never
+    // do, they show up in the badge and the edit stays queued.
+    $('new-note').value = text;
+    toast(e.message, 'error');
+  }
   renderNotes();
 });
 

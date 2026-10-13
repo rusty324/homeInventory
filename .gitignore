@@ -20,3 +20,4 @@ Gemfile.lock
 # Personal data never goes in this public repo (ghsync invariant 3)
 data/
 node_modules/
+ghsync.zip

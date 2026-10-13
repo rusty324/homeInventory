@@ -30,6 +30,25 @@ export class AuthError extends Error {
     this.name = 'AuthError';
   }
 }
+// GitHub's rate limit (primary or secondary). Temporary: the write stays
+// queued and is retried, unlike an AuthError.
+export class RateLimitError extends Error {
+  constructor(path) {
+    super(`GitHub rate limit reached while syncing ${path} — will retry`);
+    this.name = 'RateLimitError';
+    this.path = path;
+  }
+}
+// GitHub refused the request itself (400, or a 422 that isn't about the sha):
+// retrying the same request won't help, so it is reported, not looped on.
+export class RequestError extends Error {
+  constructor(status, path, message) {
+    super(`GitHub rejected ${path} (${status})${message ? `: ${message}` : ''}`);
+    this.name = 'RequestError';
+    this.status = status;
+    this.path = path;
+  }
+}
 export class NotFoundError extends Error {
   constructor(path) {
     super(`Not found: ${path}`);
@@ -55,10 +74,21 @@ export function createTokenStore(tokenKey) {
 
 async function check(res, path) {
   if (res.ok) return res;
-  if (res.status === 401 || res.status === 403) throw new AuthError(`GitHub auth failed (${res.status})`);
-  if (res.status === 404) throw new NotFoundError(path);
-  if (res.status === 409 || res.status === 422) throw new ConflictError(path);
-  throw new Error(`GitHub API ${res.status} for ${path}`);
+  const { status } = res;
+  const message = String((await res.json().catch(() => null))?.message || '');
+  // A rate limit arrives as 403 (or 429), the same status as a token without
+  // access — tell them apart, or a busy minute reads as "your token is bad".
+  if ((status === 403 || status === 429)
+    && (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after') || /rate limit/i.test(message))) {
+    throw new RateLimitError(path);
+  }
+  if (status === 401 || status === 403) throw new AuthError(`GitHub auth failed (${status})${message ? `: ${message}` : ''}`);
+  if (status === 404) throw new NotFoundError(path);
+  // 409 = sha mismatch; 422 = "sha wasn't supplied" / "sha was supplied but
+  // the file does not exist". Any other 422 is a bad request, not a conflict.
+  if (status === 409 || (status === 422 && /\bsha\b/i.test(message))) throw new ConflictError(path);
+  if (status === 400 || status === 422) throw new RequestError(status, path, message);
+  throw new Error(`GitHub API ${status} for ${path}${message ? `: ${message}` : ''}`);
 }
 
 // Folder inside the data repo, canonicalised: blank -> 'data' (the default),
