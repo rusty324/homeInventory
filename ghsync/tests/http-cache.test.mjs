@@ -1,0 +1,170 @@
+// ghsync over real HTTPS with the browser's HTTP cache switched on.
+// Run: node ghsync/tests/http-cache.test.mjs
+//      (needs `playwright`, `openssl`, and permission to bind 127.0.0.1:443;
+//       prints SKIP and exits 0 where binding 443 isn't allowed)
+//
+// ghsync.test.mjs stubs GitHub with page.route(), and routing turns Chromium's
+// HTTP cache off — so it can't see a bug that only exists with the cache on.
+// GitHub sends `Cache-Control: private, max-age=60` on API reads; without
+// cache: 'no-store' in github-api.js, a re-read right after a write (the 409
+// merge path) gets the stale sha back and a second device's "Upload all"
+// stays pending forever. This runs a fake api.github.com over HTTPS with
+// GitHub's caching headers, reached by host mapping instead of routing:
+//   1. a desktop seeds an empty repo;
+//   2. a legacy "null" collection file is planted (what old ghsync wrote);
+//   3. a phone with its own local records connects and uploads everything.
+// It must end synced, with both devices' records and no "null" files.
+
+import { chromium } from 'playwright';
+import https from 'node:https';
+import http from 'node:http';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'); // the ghsync folder
+const DIR = 'notes-app';
+const FILES = { notes: 'data/notes.json', tags: 'data/tags.json', todos: 'data/todos.json' };
+
+// ---------- throwaway TLS cert for api.github.com ----------
+const tls = await fs.mkdtemp(path.join(os.tmpdir(), 'ghsync-tls-'));
+execSync(`openssl req -x509 -newkey rsa:2048 -nodes -keyout ${tls}/key.pem -out ${tls}/cert.pem -days 1 -subj /CN=api.github.com -addext subjectAltName=DNS:api.github.com`, { stdio: 'ignore' });
+const spki = execSync(`openssl x509 -in ${tls}/cert.pem -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | base64`).toString().trim();
+
+// ---------- fake GitHub with real caching + CORS headers ----------
+const repo = new Map(); // repo path -> { content (base64), sha }
+const log = [];
+const api = https.createServer({ key: await fs.readFile(`${tls}/key.pem`), cert: await fs.readFile(`${tls}/cert.pem`) }, async (req, res) => {
+  const cors = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Authorization, Accept, Content-Type, X-GitHub-Api-Version',
+    'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
+  };
+  if (req.method === 'OPTIONS') { res.writeHead(204, cors).end(); return; }
+  let body = '';
+  for await (const c of req) body += c;
+  const u = new URL(req.url, 'https://api.github.com');
+  log.push(`${req.method} ${decodeURIComponent(u.pathname).replace(/^.*\/contents\//, '')}`);
+  const send = (status, obj) => {
+    const s = JSON.stringify(obj);
+    res.writeHead(status, {
+      ...cors,
+      'Content-Type': 'application/json',
+      ...(req.method === 'GET' ? {
+        'Cache-Control': 'private, max-age=60, s-maxage=60',
+        ETag: `"${crypto.createHash('md5').update(s).digest('hex')}"`,
+        Vary: 'Accept, Authorization, Cookie',
+      } : {}),
+    }).end(s);
+  };
+  const m = /^\/repos\/([^/]+)\/([^/]+)(?:\/contents\/(.*))?$/.exec(u.pathname);
+  if (!m) return send(404, {});
+  const p = m[3] === undefined ? undefined : decodeURIComponent(m[3]);
+  if (p === undefined) return send(200, { private: true });
+  const b = body ? JSON.parse(body) : null;
+  if (req.method === 'GET') {
+    if (repo.has(p)) { const f = repo.get(p); return send(200, { name: p.split('/').pop(), path: p, sha: f.sha, content: f.content, encoding: 'base64' }); }
+    const kids = [...repo.entries()].filter(([k]) => k.startsWith(`${p}/`));
+    return kids.length ? send(200, kids.map(([k, f]) => ({ name: k.split('/').pop(), path: k, sha: f.sha }))) : send(404, { message: 'Not Found' });
+  }
+  if (req.method === 'PUT') {
+    const cur = repo.get(p);
+    if (cur && b.sha !== cur.sha) return send(b.sha ? 409 : 422, { message: 'sha mismatch' });
+    const sha = crypto.createHash('sha1').update(b.content + Math.random()).digest('hex');
+    repo.set(p, { content: b.content, sha });
+    return send(cur ? 200 : 201, { content: { sha } });
+  }
+  return send(405, {});
+});
+try {
+  await new Promise((r, j) => { api.once('error', j); api.listen(443, '127.0.0.1', r); });
+} catch (e) {
+  console.log(`SKIP: cannot bind 127.0.0.1:443 (${e.code}) — run where that's allowed, e.g. as root in CI.`);
+  process.exit(0);
+}
+
+// ---------- the package, served statically ----------
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+const web = http.createServer(async (req, res) => {
+  const p = new URL(req.url, 'http://x').pathname;
+  const file = path.join(ROOT, p === '/' ? 'example/index.html' : p);
+  let body;
+  try { body = await fs.readFile(file); } catch { res.writeHead(404).end(); return; }
+  res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' }).end(body);
+});
+await new Promise((r) => web.listen(0, r));
+const BASE = `http://localhost:${web.address().port}/`;
+
+// No proxy (it would bypass the host mapping); api.github.com -> 127.0.0.1:443;
+// trust our cert by SPKI pin so responses are cacheable like the real thing.
+const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/proxy/i.test(k)));
+const browser = await chromium.launch({
+  executablePath: process.env.CHROMIUM_PATH || undefined,
+  env,
+  args: ['--no-proxy-server', '--host-resolver-rules=MAP api.github.com 127.0.0.1', `--ignore-certificate-errors-spki-list=${spki}`,
+    '--disable-features=BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessSendPreflights,LocalNetworkAccessChecks'],
+});
+
+let failures = 0;
+const check = (cond, msg) => { console.log(`  ${cond ? '✓' : '✗'} ${msg}`); if (!cond) failures++; };
+
+// Each device is its own browser context (own localStorage). Records are made
+// before connecting, so they're queued like real local edits; then it
+// connects the way the settings UI does: repo, token, flush, refresh.
+async function device(seed) {
+  const page = await (await browser.newContext()).newPage();
+  await page.goto(BASE);
+  await page.evaluate(async ({ seed: d, dir, files }) => {
+    const { createStore } = await import('/store.js');
+    const store = createStore({ appId: 'cachetest', files, encrypted: [], retryMs: 0 });
+    window.store = store;
+    for (const [c, recs] of Object.entries(d)) for (const r of recs) await store.upsert(c, r);
+    store.setDataRepo({ owner: 'me', repo: 'notes-data', branch: 'main', dir });
+    store.setToken('test-token');
+    store.refreshStatus();
+    await store.client.validate();
+    await store.flushQueue();
+    await store.refresh();
+  }, { seed, dir: DIR, files: FILES });
+  return page;
+}
+const state = (page) => page.evaluate(() => ({
+  status: store.syncStatus().status, error: store.syncStatus().error?.message || '', queue: store.cache.getQueue(),
+}));
+const uploadAll = (page) => page.evaluate(() => store.pushAllData());
+const read = (name) => { const f = repo.get(`${DIR}/${name}.json`); return f ? JSON.parse(Buffer.from(f.content, 'base64').toString()) : undefined; };
+const nullFiles = () => [...repo].filter(([, f]) => Buffer.from(f.content, 'base64').toString().trim() === 'null').map(([k]) => k);
+
+try {
+  console.log('Desktop seeds an empty repo');
+  const desktop = await device({ notes: [{ id: 'n1', text: 'desk' }], tags: [{ id: 't1', name: 'work' }] });
+  await uploadAll(desktop);
+  check((await state(desktop)).status === 'ok', 'desktop synced');
+  check(nullFiles().length === 0, 'seeding writes no "null" file for a collection the desktop never used');
+
+  console.log('Phone connects (own storage, own records) and uploads everything within 60 s');
+  repo.set(`${DIR}/todos.json`, { content: Buffer.from('null\n').toString('base64'), sha: crypto.randomUUID().replace(/-/g, '') });
+  log.length = 0;
+  const phone = await device({ notes: [{ id: 'n2', text: 'phone' }], todos: [{ id: 'd1', text: 'call' }] });
+  await uploadAll(phone);
+  const s = await state(phone);
+  check(s.status === 'ok' && s.queue.length === 0, `phone ends synced, not stuck pending (${s.status}${s.error ? `: ${s.error}` : ''}, queue ${s.queue.length})`);
+  check(JSON.stringify(read('notes')?.map((n) => n.text).sort()) === '["desk","phone"]', 'both devices’ notes are in the repo');
+  check(JSON.stringify(read('todos')?.map((t) => t.text)) === '["call"]', 'phone’s todo merged into a legacy "null" file');
+  check(JSON.stringify(read('tags')?.map((t) => t.name)) === '["work"]', 'desktop’s tags kept (phone never had any)');
+  check(nullFiles().length === 0, 'no "null" files left');
+  // Every 409/422 must be followed by a real read: PUT x, GET x, PUT x — never PUT x, PUT x.
+  const writes = log.filter((l) => !l.startsWith('GET /repos'));
+  const blind = writes.some((l, i) => l.startsWith('PUT') && writes[i + 1] === l);
+  check(!blind, 'conflict retries re-read from the server, not the HTTP cache');
+} finally {
+  await browser.close();
+  api.close();
+  web.close();
+  await fs.rm(tls, { recursive: true, force: true });
+}
+console.log(failures ? `\n${failures} failure(s)` : '\nAll checks passed');
+process.exit(failures ? 1 : 0);

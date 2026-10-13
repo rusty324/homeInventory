@@ -16,11 +16,33 @@
 
 import { createCache } from './cache.js';
 import {
-  makeClient, createTokenStore, normalizeDir, ConflictError, NotFoundError, AuthError, NotConfiguredError,
+  makeClient, createTokenStore, normalizeDir,
+  ConflictError, NotFoundError, AuthError, NotConfiguredError, RateLimitError, RequestError,
 } from './github-api.js';
 import { encryptJson, decryptJson, isEnvelope } from './crypto.js';
 
-export { ConflictError, NotFoundError, AuthError, NotConfiguredError };
+export { ConflictError, NotFoundError, AuthError, NotConfiguredError, RateLimitError, RequestError };
+
+// localStorage refused a write (quota). The edit was NOT stored anywhere.
+export class StorageFullError extends Error {
+  constructor(path) {
+    super(`Browser storage is full — couldn't save ${path}. Delete something or free space, then try again.`);
+    this.name = 'StorageFullError';
+    this.path = path;
+  }
+}
+
+// A repo file that isn't valid JSON (hand-edited, truncated…). Reported by
+// refresh(); the rest of the files still load and the local copy is kept.
+export class CorruptFileError extends Error {
+  constructor(paths) {
+    super(`Couldn't read ${paths.join(', ')} from the data repo: not valid JSON. Keeping the local copy.`);
+    this.name = 'CorruptFileError';
+    this.paths = paths;
+  }
+}
+
+const isQuotaError = (e) => e?.name === 'QuotaExceededError' || e?.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e?.code === 22;
 
 /**
  * @param {object} opts
@@ -107,9 +129,13 @@ export function createStore(opts) {
   const lockedPaths = new Set(); // envelopes we couldn't decrypt (no/wrong password)
   const password = () => localStorage.getItem(PW_KEY) || '';
 
+  // Returns the previous password, so a caller can put it back when the new
+  // one turns out not to unlock the synced files.
   function setPassword(pw) {
+    const prev = password();
     if (pw) localStorage.setItem(PW_KEY, pw);
     else localStorage.removeItem(PW_KEY);
+    return prev;
   }
 
   function encryption() {
@@ -172,6 +198,19 @@ export function createStore(opts) {
     setStatus(canSync() ? (cache.getQueue().length ? 'pending' : 'ok') : 'local');
   }
 
+  // Every cache write goes through here: a full localStorage must surface as
+  // an error, not vanish (the edit would otherwise exist only on screen).
+  function writeCache(path, data) {
+    try {
+      cache.setData(path, data);
+    } catch (e) {
+      if (!isQuotaError(e)) throw e;
+      const err = new StorageFullError(path);
+      setStatus('error', err);
+      throw err;
+    }
+  }
+
   // ---------- reads ----------
 
   function get(collection) {
@@ -184,7 +223,7 @@ export function createStore(opts) {
 
   async function save(collection, records) {
     const path = files[collection];
-    cache.setData(path, records);
+    writeCache(path, records);
     cache.markDirty(path);
     emit({ type: 'changed', collection });
     await push(path, collection);
@@ -202,9 +241,25 @@ export function createStore(opts) {
     await save(collection, get(collection).filter((r) => r.id !== id));
   }
 
-  async function push(path, collection) {
+  // Pushes of one path run one at a time, in order. Without this an older
+  // PUT that finishes last could mark the file clean over a newer edit, and
+  // overlapping flushes would upload the same file several times.
+  const pushing = new Map(); // path -> promise of the last queued push
+  function push(path, collection) {
+    const run = (pushing.get(path) || Promise.resolve()).catch(() => {}).then(() => pushNow(path, collection));
+    pushing.set(path, run);
+    run.catch(() => {}).finally(() => { if (pushing.get(path) === run) pushing.delete(path); });
+    return run;
+  }
+
+  async function pushNow(path, collection) {
     if (!canSync() || !navigator.onLine) {
       setStatus(canSync() ? 'pending' : 'local');
+      return;
+    }
+    // Already uploaded by an earlier push in the chain (they coalesce).
+    if (!cache.isDirty(path)) {
+      setStatus(cache.getQueue().length ? 'pending' : 'ok');
       return;
     }
     // Never loaded on this device (null, not []): there is nothing local to
@@ -217,11 +272,15 @@ export function createStore(opts) {
     setStatus('pending');
     try {
       for (let attempt = 0; attempt < 3; attempt++) {
-        const content = await serializeFile(path, cache.getData(path));
+        const data = cache.getData(path);
+        const sent = JSON.stringify(data);
+        const content = await serializeFile(path, data);
         try {
           const sha = await client.putFile(path, content, cache.getSha(path), `Update ${path}`);
           cache.setSha(path, sha);
-          cache.clearDirty(path);
+          // Only clean if nothing changed while the PUT was in flight; a newer
+          // edit stays queued (its own push is already chained behind this one).
+          if (JSON.stringify(cache.getData(path)) === sent) cache.clearDirty(path);
           setStatus(cache.getQueue().length ? 'pending' : 'ok');
           return;
         } catch (e) {
@@ -231,8 +290,10 @@ export function createStore(opts) {
       }
       throw new Error(`Gave up pushing ${path} after repeated conflicts`);
     } catch (e) {
-      if (e instanceof AuthError) setStatus('error', e);
-      else setStatus('pending', e); // network or transient: stays queued
+      // Auth, a rejected request, a full disk: needs the user. Everything
+      // else (offline, rate limit, 5xx) stays queued and is retried.
+      if (e instanceof AuthError || e instanceof RequestError || e instanceof StorageFullError) setStatus('error', e);
+      else setStatus('pending', e);
     }
   }
 
@@ -256,7 +317,7 @@ export function createStore(opts) {
     const byId = new Map();
     for (const r of remote) byId.set(r.id, r);
     for (const r of local) byId.set(r.id, r); // local dirty records win
-    cache.setData(path, [...byId.values()]);
+    writeCache(path, [...byId.values()]);
     cache.setSha(path, sha);
     if (collection) emit({ type: 'changed', collection });
   }
@@ -280,33 +341,59 @@ export function createStore(opts) {
   }
   const settled = () => refreshing || Promise.resolve();
 
+  // A remote file may only replace the cache if, by the time it has been
+  // downloaded and decrypted, the path still has no unpushed edit and no push
+  // has moved its sha meanwhile — otherwise the download is already stale.
+  const untouched = (path, shaBefore) => !cache.isDirty(path) && !pushing.has(path) && cache.getSha(path) === shaBefore;
+
+  // -> 'changed' | 'same' | 'locked' | 'skipped'. Throws on network/auth
+  // errors; collects unparseable files into `corrupt`.
+  async function pullFile(path, knownSha, corrupt) {
+    const shaBefore = cache.getSha(path);
+    if (!untouched(path, shaBefore) || (knownSha && knownSha === shaBefore)) return 'skipped';
+    let f;
+    try {
+      f = await client.getFile(path);
+    } catch (e) {
+      if (e instanceof NotFoundError) return 'same'; // absent file = empty collection
+      throw e;
+    }
+    if (f.sha === shaBefore) return 'same';
+    let parsed;
+    try {
+      parsed = JSON.parse(f.content);
+    } catch {
+      corrupt.push(path);
+      return 'skipped';
+    }
+    const res = await deserializeFile(path, parsed);
+    if (res.locked) {
+      // Keep the old cache and old sha so we retry once unlocked.
+      emit({ type: 'sync-status', status, error: lastError });
+      return 'locked';
+    }
+    if (!untouched(path, shaBefore)) return 'skipped'; // edited while downloading
+    writeCache(path, res.data);
+    cache.setSha(path, f.sha);
+    return 'changed';
+  }
+
+  let corruptFiles = [];
+
   async function doRefresh() {
     if (!canSync() || !navigator.onLine) return;
+    corruptFiles = [];
     try {
       for (const [collection, path] of Object.entries(files)) {
-        if (cache.isDirty(path)) continue; // don't clobber unpushed local edits
-        try {
-          const { content, sha } = await client.getFile(path);
-          if (sha !== cache.getSha(path)) {
-            const res = await deserializeFile(path, JSON.parse(content));
-            if (res.locked) {
-              // Keep the old cache and old sha so we retry once unlocked.
-              emit({ type: 'sync-status', status, error: lastError });
-              continue;
-            }
-            cache.setData(path, res.data);
-            cache.setSha(path, sha);
-            emit({ type: 'changed', collection });
-          }
-        } catch (e) {
-          if (!(e instanceof NotFoundError)) throw e; // absent file = empty collection
-        }
+        if ((await pullFile(path, null, corruptFiles)) === 'changed') emit({ type: 'changed', collection });
       }
       await onRefresh();
-      if (!cache.getQueue().length) setStatus('ok');
+      if (corruptFiles.length) setStatus('error', new CorruptFileError(corruptFiles));
+      else if (!cache.getQueue().length) setStatus('ok');
     } catch (e) {
       if (e instanceof AuthError) setStatus('error', e);
-      // other failures: keep whatever we had cached
+      else if (e instanceof RateLimitError) setStatus(status, e);
+      // other failures (offline, 5xx): keep whatever we had cached
     }
   }
 
@@ -318,7 +405,7 @@ export function createStore(opts) {
   // collection. Used for sharded data (one file per month, say) that doesn't
   // fit the collection model.
   async function writeFile(path, data) {
-    cache.setData(path, data);
+    writeCache(path, data);
     cache.markDirty(path);
     await push(path, null);
   }
@@ -326,22 +413,14 @@ export function createStore(opts) {
   // Pull every file in a repo directory into the cache. Returns the paths seen
   // and whether anything changed. Locally-dirty paths are skipped so an
   // unpushed local write isn't clobbered by the remote.
+  // Unparseable files are skipped and reported by the surrounding refresh().
   async function refreshDir(dir, match = () => true) {
     const paths = [];
     let changed = false;
     for (const entry of await client.listDir(dir)) {
       if (!match(entry.name)) continue;
       paths.push(entry.path);
-      if (cache.isDirty(entry.path) || entry.sha === cache.getSha(entry.path)) continue;
-      const { content, sha } = await client.getFile(entry.path);
-      const res = await deserializeFile(entry.path, JSON.parse(content));
-      if (res.locked) {
-        emit({ type: 'sync-status', status, error: lastError });
-        continue;
-      }
-      cache.setData(entry.path, res.data);
-      cache.setSha(entry.path, sha);
-      changed = true;
+      if ((await pullFile(entry.path, entry.sha, corruptFiles)) === 'changed') changed = true;
     }
     return { paths, changed };
   }

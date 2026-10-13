@@ -245,9 +245,12 @@ export function syncSections({ store, toast, onChange = () => {}, reopen = () =>
       const pw = pwInput.value.trim();
       if (!pw) { toast('Enter a password first', 'error'); return; }
       setBusy(true);
-      store.setPassword(pw);
+      const prev = store.setPassword(pw);
       await store.refresh(); // decrypt anything currently locked
       if (store.encryption().locked) {
+        // Don't keep a password that can't read the repo: the next write
+        // would encrypt with it and leave files under two passwords.
+        store.setPassword(prev);
         toast('That password doesn’t unlock the synced files', 'error');
       } else {
         await store.rewriteEncryptedFiles();

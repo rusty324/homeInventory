@@ -11,7 +11,7 @@
 // exactly when the collections are (sync.js claims the paths in encryptPath).
 // Each attachment is immutable per id; editing means add-new + remove-old.
 
-import { NotFoundError, ConflictError, AuthError } from '../ghsync/store.js';
+import { NotFoundError, ConflictError, AuthError, RateLimitError } from './store.js';
 
 // ---------- IndexedDB ----------
 // Records: { id, mime, data, thumb?, name?, size?, sha, state: 'synced' | 'pending' | 'deleted' }
@@ -114,6 +114,7 @@ export function createBlobStore(store, { dbName, dir, kind }) {
   const inflight = new Map();
   const thumbs = new Map(); // id -> thumb data: URL, so re-renders paint without an IDB round trip
   let flushing = null;
+  let flushAgain = false;
   let pendingCount = 0;
 
   const changed = () => store.emit({ type: 'changed', collection: kind });
@@ -228,10 +229,15 @@ export function createBlobStore(store, { dbName, dir, kind }) {
   }
 
   // Push every queued upload/delete. Serialised so overlapping triggers
-  // (online event, timer, a save) don't double-PUT. The reset happens in a
-  // chained .finally so it can't run before `flushing` is assigned.
+  // (online event, timer, a save) don't double-PUT; a trigger that arrives
+  // mid-flush makes it go round once more, so a file added meanwhile isn't
+  // left for the retry timer. The reset happens in a chained .finally so it
+  // can't run before `flushing` is assigned.
   function flush() {
-    if (!flushing) flushing = doFlush().finally(() => { flushing = null; });
+    if (flushing) { flushAgain = true; return flushing; }
+    flushing = (async () => {
+      do { flushAgain = false; await doFlush(); } while (flushAgain);
+    })().finally(() => { flushing = null; });
     return flushing;
   }
 
@@ -243,7 +249,7 @@ export function createBlobStore(store, { dbName, dir, kind }) {
         try {
           await pushOne(rec);
         } catch (e) {
-          if (e instanceof AuthError) break;
+          if (e instanceof AuthError || e instanceof RateLimitError) break; // every other file would fail too
           console.warn(`${kind} push failed`, rec.id, e);
         }
       }
