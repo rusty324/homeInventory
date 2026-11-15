@@ -3,7 +3,7 @@
 // queueing, conflict merging, encryption — comes from the package.
 
 import { createStore } from '../store.js';
-import { syncSections, setupRows, h, badgeState } from '../settings-ui.js';
+import { syncSections, setupRows, h, badgeState, errorPanel } from '../settings-ui.js';
 
 const store = createStore({
   appId: 'notes',                      // localStorage namespace
@@ -20,10 +20,29 @@ function toast(message, type = '') {
 }
 
 function renderBadge() {
-  const { text, cls } = badgeState(store);
+  const { text, cls, title, actionable } = badgeState(store);
   $('badge').className = `gh-badge ${cls}`;
   $('badge').textContent = text;
+  $('badge').title = title;
+  // With an error behind it, the badge opens the copyable details.
+  if (actionable) $('badge').setAttribute('role', 'button');
+  else $('badge').removeAttribute('role');
 }
+
+// Click "sync error" for the report, in a native <dialog>.
+$('badge').addEventListener('click', () => {
+  if (!badgeState(store).actionable) return;
+  const dialog = h('dialog', { class: 'gh-dialog' });
+  const close = () => { dialog.close(); dialog.remove(); };
+  dialog.append(
+    h('h2', { style: 'margin-top:0;font-size:1.1rem' }, 'Sync details'),
+    errorPanel(store, { toast, onRetry: (st) => { renderBadge(); if (st.status === 'ok') close(); } }),
+    h('div', { style: 'text-align:right;margin-top:8px' },
+      h('button', { class: 'btn secondary', onclick: close }, 'Close')),
+  );
+  document.body.appendChild(dialog);
+  dialog.showModal();
+});
 
 function renderNotes() {
   const list = $('notes');

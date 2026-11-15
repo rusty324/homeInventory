@@ -62,7 +62,9 @@ store.rewriteEncryptedFiles = async (collections) => {
   for (const b of blobStores) await b.pushAll(false);
 };
 
-// Convenience: stamp timestamps on every write.
+// Convenience: stamp timestamps on every write. Await it: the one way it
+// rejects is StorageFullError — the edit was not kept — and a form that
+// doesn't wait closes as if it had saved.
 export async function saveRecord(collection, record) {
   const stamp = new Date().toISOString();
   const rec = { ...record, updatedAt: stamp, createdAt: record.createdAt || stamp };

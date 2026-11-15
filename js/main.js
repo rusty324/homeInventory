@@ -10,6 +10,7 @@ import * as inventory from './inventory.js';
 import * as maintenance from './maintenance.js';
 import * as settings from './settings.js';
 import { initTips } from './tips.js';
+import { installOffline } from './offline.js';
 
 const TABS = {
   paint: { title: 'Paint', mod: paint },
@@ -82,4 +83,14 @@ route();
 renderBadge();
 store.init();
 initBlobs();
+installOffline();
+
+// A Home Screen app is resumed, not reloaded: pull again (and retry anything
+// queued) when it comes back to the front, at most once a minute.
+let lastForegroundSync = Date.now();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || Date.now() - lastForegroundSync < 60000) return;
+  lastForegroundSync = Date.now();
+  store.flushQueue().then(() => store.refresh()).catch(() => {});
+});
 initTips();

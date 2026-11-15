@@ -1,5 +1,66 @@
 # ghsync changelog
 
+## 1.3 — 2026-11-15
+
+- **A conflict merge let every local record win, not just the edited ones.**
+  A device holding a stale copy (offline for a while, or editing before its
+  startup refresh landed) therefore reverted whatever another device had
+  changed since, and brought back what it had deleted — silently, with a
+  green badge. `save()` now records which record ids it added, changed or
+  removed (`cache.getDirtyIds(path)`, cleared when the push lands), and the
+  merge lets only those win; a record deleted here stays deleted, and one
+  deleted elsewhere is no longer resurrected. A path with no such list —
+  queued by 1.2, written whole with `writeFile`, or reseeded with
+  `pushAllData()` — and a repo with no such file still merge as before
+  (union, local wins), so nothing local is dropped on a guess.
+- Re-encrypting (`rewriteEncryptedFiles`) edits no record, so on a conflict
+  it now keeps the repo's records rather than overwriting them.
+
+## 1.2 — 2026-11-03
+
+Every change below has a test in `tests/ghsync.test.mjs` that fails on 1.1.
+
+### Never overwrite a file it doesn't understand
+
+- **A collection file that isn't a list was treated as empty and overwritten
+  by the next merge.** The common way to get one is two apps pointed at the
+  same folder (1.1 made folders configurable): the merge replaced the other
+  app's file with this app's records. Now a non-list file — or a list with
+  records that have no `id`, which the merge would collapse into one — is
+  refused with `ShapeError`: nothing is written, the local copy is kept, the
+  edit stays queued, and it uploads once the file is fixed, moved or deleted.
+  `null` still reads as empty: that's what pre-1.1 copies wrote for an unused
+  collection, and there is nothing in it to lose.
+- **Refresh loaded a non-list file straight into a collection**, so `get()`
+  returned an object and the app's next `upsert` threw. Refresh now leaves the
+  local copy alone for that file, loads the rest, and reports it.
+
+### "sync error" means a person should look
+
+- **Non-transient failures showed as "pending sync" forever** — giving up after
+  repeated conflicts, a merge that can't decrypt, `ShapeError`, a bug. Only
+  failures that clear by themselves are `pending` now: `NetworkError` (new: no
+  HTTP response at all, previously a bare `TypeError`), `ServerError` (new:
+  5xx) and `RateLimitError`. Everything else is `error`. Either way the write
+  stays queued and keeps retrying.
+- A background refresh that hits a non-transient error now reports it instead
+  of failing silently. A dropped connection during refresh still changes
+  nothing, so a momentary blip doesn't make a healthy badge look broken.
+
+### Error details you can copy
+
+- `errorReport(store)` (settings-ui.js): plain-text diagnostics — the error and
+  its class, file, HTTP status and cause, when it started, repo/folder/branch,
+  what's queued, encryption state, browser, ghsync version. Never contains the
+  token or the password; the token is also scrubbed from the text.
+- `errorPanel(store, { toast, onRetry })`: that report in a read-only box with
+  **Copy** and **Retry now**, for the host to show in its own modal.
+- `badgeState()` also returns `title` (the error message) and `actionable`
+  (there's an error worth showing): make the badge a button then. The example
+  app opens the panel in a `<dialog>` when "sync error" is clicked.
+- `syncStatus()` also returns `errorAt` and `queued`. `VERSION` is exported
+  from `store.js`.
+
 ## 1.1 — 2026-10-13
 
 Bug review against 1.0 (the original `ghsync.zip`). Every fix below has a test

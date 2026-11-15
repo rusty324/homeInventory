@@ -9,6 +9,7 @@
 // host has nothing of its own.
 
 import { normalizeDir } from './github-api.js';
+import { VERSION } from './store.js';
 
 export function h(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
@@ -51,14 +52,114 @@ export function warnIfPublic(info, toast) {
   return true;
 }
 
-// Header badge text/class for the current sync state.
+// Header badge text/class for the current sync state. `title` is the error
+// message, for a tooltip. `actionable` is true when there is an error worth
+// showing: make the badge clickable then, and open errorPanel() on click.
 export function badgeState(store) {
-  const { status } = store.syncStatus();
-  if (store.encryption().locked) return { text: '🔒 locked', cls: 'error' };
-  if (status === 'local') return { text: 'local only', cls: '' };
-  if (status === 'pending') return { text: 'pending sync', cls: 'pending' };
-  if (status === 'error') return { text: 'sync error', cls: 'error' };
-  return { text: 'synced', cls: 'ok' };
+  const { status, error } = store.syncStatus();
+  const title = error?.message ?? '';
+  const actionable = !!error && (status === 'error' || status === 'pending');
+  if (store.encryption().locked) return { text: '🔒 locked', cls: 'error', title, actionable };
+  if (status === 'local') return { text: 'local only', cls: '', title: '', actionable: false };
+  if (status === 'pending') return { text: 'pending sync', cls: 'pending', title, actionable };
+  if (status === 'error') return { text: 'sync error', cls: 'error', title, actionable };
+  return { text: 'synced', cls: 'ok', title: '', actionable: false };
+}
+
+// Plain-text diagnostics for the current sync state, for pasting into an
+// issue or a chat. Never includes the token or the encryption password — the
+// token is also scrubbed from the text in case a message ever echoed it.
+export function errorReport(store) {
+  const { status, error, errorAt, queued = [] } = store.syncStatus();
+  const repo = store.getDataRepo();
+  const { enabled, locked } = store.encryption();
+  const lines = [
+    `ghsync ${VERSION} sync report — ${new Date().toISOString()}`,
+    `Status:     ${status}${locked ? ' (some files locked: wrong or missing password)' : ''}`,
+  ];
+  if (error) {
+    lines.push(`Error:      ${error.name || 'Error'}: ${error.message}`);
+    if (errorAt) lines.push(`Since:      ${errorAt}`);
+    if (error.path) lines.push(`File:       ${error.path}`);
+    if (error.paths) lines.push(`Files:      ${error.paths.join(', ')}`);
+    if (error.status) lines.push(`HTTP:       ${error.status}`);
+    if (error.cause?.message) lines.push(`Cause:      ${error.cause.message}`);
+  } else {
+    lines.push('Error:      none');
+  }
+  lines.push(
+    `Repo:       ${repo?.owner && repo?.repo ? `${repoLabel(repo)} (branch ${repo.branch || 'main'})` : 'not set'}`,
+    `Token:      ${store.hasToken() ? 'saved (not shown)' : 'not set'}`,
+    `Encryption: ${enabled ? 'on' : 'off'}`,
+    `Queued:     ${queued.length ? queued.join(', ') : 'nothing'}`,
+    `Online:     ${navigator.onLine ? 'yes' : 'no'}`,
+    `Page:       ${location.origin}${location.pathname}`,
+    `Browser:    ${navigator.userAgent}`,
+  );
+  const stack = String(error?.stack || '').split('\n').slice(1, 9).map((l) => `  ${l.trim()}`);
+  if (stack.length && stack[0].trim()) lines.push('Stack:', ...stack);
+  let text = lines.join('\n');
+  const token = store.getToken();
+  if (token) text = text.split(token).join('[token]');
+  return text;
+}
+
+/**
+ * The body of a "sync error" pop-up: the report in a read-only box, a Copy
+ * button, and Retry now. The host wraps it in its own modal or <dialog>.
+ * @param {object} store
+ * @param {object} o
+ * @param {(msg:string, type?:string)=>void} o.toast
+ * @param {(status:object)=>void} [o.onRetry] called with syncStatus() after a retry
+ */
+export function errorPanel(store, { toast, onRetry = () => {} }) {
+  const box = h('textarea', {
+    class: 'gh-report',
+    readonly: true,
+    spellcheck: 'false',
+    'aria-label': 'Sync error details',
+    style: 'width:100%;min-height:200px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;white-space:pre;overflow:auto',
+  });
+  box.value = errorReport(store);
+
+  const copy = async () => {
+    box.focus();
+    box.select();
+    try {
+      await navigator.clipboard.writeText(box.value);
+      toast('Copied to the clipboard');
+    } catch {
+      // No clipboard API (or no permission): fall back to the selection.
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch { /* unsupported */ }
+      toast(ok ? 'Copied to the clipboard' : 'Couldn’t copy automatically — the text is selected, copy it from there',
+        ok ? '' : 'error');
+    }
+  };
+  const retryBtn = h('button', {
+    class: 'btn secondary',
+    onclick: async () => {
+      retryBtn.disabled = true;
+      await store.flushQueue();
+      await store.refresh();
+      box.value = errorReport(store);
+      retryBtn.disabled = false;
+      const st = store.syncStatus();
+      toast(st.status === 'ok' ? 'Synced' : `Still ${st.status === 'error' ? 'failing' : 'pending'}: ${st.error?.message || 'see details'}`,
+        st.status === 'ok' ? '' : 'error');
+      onRetry(st);
+    },
+  }, 'Retry now');
+
+  return h('div', {},
+    h('p', { class: 'muted', style: 'margin-top:0' },
+      'Copy this into a bug report or a chat. It contains no token or password.'),
+    box,
+    h('div', { class: 'field-row', style: 'margin-top:8px' },
+      h('button', { class: 'btn', onclick: copy }, 'Copy'),
+      retryBtn,
+    ),
+  );
 }
 
 /**

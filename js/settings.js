@@ -1,6 +1,7 @@
 // Settings: ghsync's data-repo / token / encryption sections, the shared room
 // list, and a JSON backup (records only — photos and files live in the data repo).
 
+import { today } from './dates.js';
 import { h, clear, toast, confirmDialog } from './ui.js';
 import { syncSections, setupRows } from '../ghsync/settings-ui.js';
 import { store, pendingUploads } from './sync.js';
@@ -127,7 +128,7 @@ function backupSection() {
     try {
       const data = JSON.parse(await file.text());
       const cols = data?.collections;
-      if (!cols || typeof cols !== 'object') throw new Error('Not a home-inventory backup file');
+      if (!cols || typeof cols !== 'object' || (data.app && data.app !== 'homeinv')) throw new Error('Not a home-inventory backup file');
       const names = Object.keys(store.files).filter((c) => Array.isArray(cols[c]));
       if (!names.length) throw new Error('The backup contains no records');
       const counts = names.map((c) => `${cols[c].length} ${c}`).join(', ');
@@ -141,7 +142,7 @@ function backupSection() {
   const exportJson = () => {
     const collections = Object.fromEntries(Object.keys(store.files).map((c) => [c, store.get(c)]));
     const blob = new Blob([JSON.stringify({ app: 'homeinv', version: 1, exportedAt: new Date().toISOString(), collections }, null, 2)], { type: 'application/json' });
-    const a = h('a', { href: URL.createObjectURL(blob), download: `home-backup-${new Date().toISOString().slice(0, 10)}.json` });
+    const a = h('a', { href: URL.createObjectURL(blob), download: `home-backup-${today()}.json` });
     document.body.append(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
