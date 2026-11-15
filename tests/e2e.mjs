@@ -722,6 +722,48 @@ try {
     await phone.close();
   }
 
+  step('iPhone: dialogs');
+  // A date field in the paint form's room rows ran past the dialog's right
+  // edge on iOS, and dragging outside the dialog scrolled the page behind it.
+  {
+    const phone = await browser.newContext(devices['iPhone 13']);
+    const p = await phone.newPage();
+    await p.goto(`${BASE}#paint`);
+    await p.evaluate(() => document.body.append(Object.assign(document.createElement('div'), { style: 'height:3000px' })));
+    await p.evaluate(() => scrollTo(0, 400));
+    // Click from script: Playwright would scroll the button into view first.
+    await p.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '+ Paint').click());
+    check(await p.evaluate(() => scrollY) === 400, 'opening a dialog keeps the page where it was');
+    const dlg = p.locator('dialog[open]');
+    await dlg.getByRole('button', { name: '+ Assign to a room' }).click();
+    const geo = await p.evaluate(() => {
+      const d = document.querySelector('dialog[open]');
+      const body = d.querySelector('.modal-body').getBoundingClientRect();
+      const out = [...d.querySelectorAll('input, select, textarea, button')].filter((e) => e.offsetParent)
+        .filter((e) => e.getBoundingClientRect().right > body.right + 0.5).map((e) => e.getAttribute('aria-label') || e.type || e.textContent);
+      const dates = [...d.querySelectorAll('input[type=date]')];
+      const text = d.querySelector('input[type=text], input:not([type])');
+      return {
+        out,
+        native: dates.filter((e) => getComputedStyle(e).appearance !== 'none').length,
+        short: dates.filter((e) => e.offsetHeight < text.offsetHeight - 1).length,
+        dates: dates.length,
+      };
+    });
+    check(geo.out.length === 0, `nothing in the paint dialog sticks out past its edge on iPhone (${geo.out.join(', ') || 'none'})`);
+    check(geo.dates > 0 && geo.native === 0 && geo.short === 0, 'date fields drop the native iOS control width and keep a text field’s height');
+    check(await p.evaluate(() => getComputedStyle(document.documentElement).overflow === 'hidden'), 'the page behind an open dialog can’t scroll');
+    await p.mouse.move(370, 300);
+    await p.mouse.wheel(0, 600);
+    await p.waitForTimeout(200);
+    const y = await p.evaluate(() => scrollY);
+    check(y === 400, `scrolling beside the dialog leaves the page where it was (scrollY ${y})`);
+    await p.keyboard.press('Escape');
+    await p.waitForTimeout(100);
+    check(await p.evaluate(() => getComputedStyle(document.documentElement).overflow !== 'hidden' && scrollY === 400), 'closing the dialog gives the page its scrolling back, same position');
+    await phone.close();
+  }
+
   step('Console');
   check(A.errors.length === 0 && B.errors.length === 0, `no page errors ${[...A.errors, ...B.errors].join(' | ')}`);
 } catch (e) {
