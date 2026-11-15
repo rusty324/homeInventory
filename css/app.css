@@ -52,6 +52,9 @@
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
+/* While any dialog is open the page behind it must not scroll. Dragging on a
+   phone outside the dialog's own scroll area otherwise scrolled the page. */
+html:has(dialog[open]) { overflow: hidden; }
 body {
   margin: 0;
   background: var(--bg);
@@ -149,6 +152,17 @@ textarea { resize: vertical; }
    (Not maximum-scale=1 in the viewport: that would also block pinch-zoom.) */
 @media (pointer: coarse) {
   input, select, textarea { font-size: 16px; }
+  /* iOS Safari draws date fields as a native control with its own minimum
+     width that ignores width/min-width, so in a narrow column it ran past the
+     dialog's edge. Without the native appearance it sizes like any input;
+     keep the text left-aligned and a text field's height (an empty one would
+     otherwise collapse). Tapping still opens the date picker. */
+  input[type="date"], input[type="time"], input[type="datetime-local"], input[type="month"] {
+    -webkit-appearance: none;
+    appearance: none;
+    min-height: calc(1.45em + 18px);
+  }
+  input::-webkit-date-and-time-value { text-align: left; }
 }
 
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 0; min-width: 0; }
@@ -231,7 +245,9 @@ textarea { resize: vertical; }
 .uses { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .use-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.3fr) 70px minmax(0, 1fr) auto; gap: 6px; width: 100%; align-items: center; }
 @media (max-width: 560px) {
-  .use-row { grid-template-columns: 1fr 1fr; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
+  /* room | area (2 cols) / coats | date | ✕ */
+  .use-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
+  .use-row > :nth-child(2) { grid-column: 2 / -1; }
 }
 
 /* ---------- photos ---------- */
@@ -273,7 +289,7 @@ dialog.modal::backdrop { background: rgb(0 0 0 / 45%); }
 dialog.modal > form { display: flex; flex-direction: column; max-height: calc(100dvh - 26px); }
 .modal-head { display: flex; align-items: center; padding: 12px 12px 8px 18px; border-bottom: 1px solid var(--border); }
 .modal-head h2 { flex: 1; margin: 0; }
-.modal-body { padding: 16px 18px; overflow-y: auto; }
+.modal-body { padding: 16px 18px; overflow-y: auto; overscroll-behavior: contain; }
 .modal-foot { display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); flex-wrap: wrap; }
 dialog.confirm .modal-body p { margin: 0; }
 
@@ -335,7 +351,7 @@ dialog.confirm .modal-body p { margin: 0; }
 .doc-icon { font-size: 1.1rem; }
 .docs-editor { display: flex; flex-direction: column; gap: 8px; }
 .doc-add { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto auto; gap: 6px; align-items: center; }
-@media (max-width: 560px) { .doc-add { grid-template-columns: 1fr 1fr; } .doc-add input[type="url"] { grid-column: 1 / -1; } }
+@media (max-width: 560px) { .doc-add { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .doc-add input[type="url"] { grid-column: 1 / -1; } }
 .data-table .col-docs { max-width: 220px; }
 
 /* ---------- maintenance ---------- */
@@ -465,7 +481,7 @@ th.num .sort { float: right; }
   .tab-text { display: none; }
   .data-table .desc { display: none; }
   .modal-body { padding: 14px; }
-  .form-grid { grid-template-columns: 1fr 1fr; }
+  .form-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .form-grid .field:has(textarea), .form-grid .field:has(.chips) { grid-column: 1 / -1; }
 }
 @media (max-width: 380px) {
