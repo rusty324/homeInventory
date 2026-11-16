@@ -60,6 +60,7 @@ function gate(method, re) {
   gates.push(g);
   return g;
 }
+// status 0 = no response at all (the connection drops).
 const failNext = (method, re, status, body = {}, headers = {}) => failures.push({ method, re, status, body, headers });
 
 async function github(route) {
@@ -83,6 +84,7 @@ async function github(route) {
   const fi = failures.findIndex((f) => f.method === method && p !== undefined && f.re.test(p));
   if (fi >= 0) {
     const [f] = failures.splice(fi, 1);
+    if (f.status === 0) return route.abort('internetdisconnected');
     return json(f.status, f.body, f.headers);
   }
   if (req.headers().authorization !== 'Bearer tok') return json(401, { message: 'Bad credentials' });
@@ -191,6 +193,65 @@ await test('a 409 merges both devices’ records by id', async ({ page }) => {
   setRemote('data/notes.json', JSON.stringify([{ id: 'a' }, { id: 'other-device' }]));
   await page.evaluate(() => S.upsert('notes', { id: 'b' }));
   expect(ids('data/notes.json') === 'a,b,other-device', `remote has ${ids('data/notes.json')}`);
+});
+
+// ---------- 1.3: only the records this device edited win a merge ----------
+
+await test('a conflict does not revert a record another device changed', async ({ page }) => {
+  await page.evaluate(() => window.mk('stale', { notes: 'data/notes.json' }));
+  await page.evaluate(() => S.save('notes', [{ id: 'a', v: 1 }, { id: 'b', v: 1 }]));
+  // Another device edits a; this one, still holding a v1, edits b.
+  setRemote('data/notes.json', JSON.stringify([{ id: 'a', v: 2 }, { id: 'b', v: 1 }]));
+  await page.evaluate(() => S.upsert('notes', { id: 'b', v: 3 }));
+  const remote = Object.fromEntries(remoteJson('data/notes.json').map((r) => [r.id, r.v]));
+  expect(remote.a === 2, `the other device's edit to a was reverted to v${remote.a}`);
+  expect(remote.b === 3, `this device's edit to b was lost (v${remote.b})`);
+  const local = await page.evaluate(() => Object.fromEntries(S.get('notes').map((r) => [r.id, r.v])));
+  expect(local.a === 2 && local.b === 3, `local copy is ${JSON.stringify(local)}`);
+});
+
+await test('a record deleted on another device stays deleted after a conflict', async ({ page }) => {
+  await page.evaluate(() => window.mk('gone', { notes: 'data/notes.json' }));
+  await page.evaluate(() => S.save('notes', [{ id: 'a' }, { id: 'b' }]));
+  setRemote('data/notes.json', JSON.stringify([{ id: 'b' }]));
+  await page.evaluate(() => S.upsert('notes', { id: 'c' }));
+  expect(ids('data/notes.json') === 'b,c', `remote has ${ids('data/notes.json')} (a came back)`);
+});
+
+await test('a record deleted here stays deleted after a conflict', async ({ page }) => {
+  await page.evaluate(() => window.mk('mine', { notes: 'data/notes.json' }));
+  await page.evaluate(() => S.save('notes', [{ id: 'a' }, { id: 'b' }]));
+  setRemote('data/notes.json', JSON.stringify([{ id: 'a' }, { id: 'b' }, { id: 'x' }]));
+  await page.evaluate(() => S.remove('notes', 'a'));
+  expect(ids('data/notes.json') === 'b,x', `remote has ${ids('data/notes.json')}`);
+});
+
+await test('a queued path with no edit list (older version) still merges as a union', async ({ page }) => {
+  await page.evaluate(() => window.mk('legacy', { notes: 'data/notes.json' }));
+  await page.evaluate(() => S.save('notes', [{ id: 'a' }]));
+  setRemote('data/notes.json', JSON.stringify([{ id: 'other' }]));
+  await page.evaluate(() => {
+    S.cache.setData('data/notes.json', [{ id: 'a' }, { id: 'b' }]);
+    S.cache.markDirty('data/notes.json'); // as 1.2 queued it: no list of edited ids
+    return S.flushQueue();
+  });
+  expect(ids('data/notes.json') === 'a,b,other', `remote has ${ids('data/notes.json')}`);
+});
+
+await test('a legacy "null" file in the repo drops nothing local', async ({ page }) => {
+  await page.evaluate(() => window.mk('nullfile', { notes: 'data/notes.json' }));
+  await page.evaluate(() => S.save('notes', [{ id: 'a' }, { id: 'b' }]));
+  setRemote('data/notes.json', 'null\n');
+  await page.evaluate(() => S.upsert('notes', { id: 'c' }));
+  expect(ids('data/notes.json') === 'a,b,c', `remote has ${ids('data/notes.json')}`);
+});
+
+await test('edits made before the repo file exists all upload', async ({ page }) => {
+  await page.evaluate(() => window.mk('fresh', { notes: 'data/notes.json' }));
+  await page.evaluate(() => S.save('notes', [{ id: 'a' }, { id: 'b' }]));
+  repo.delete('data/notes.json'); // the file vanished (repo switched, folder moved)
+  await page.evaluate(() => S.upsert('notes', { id: 'c' }));
+  expect(ids('data/notes.json') === 'a,b,c', `remote has ${ids('data/notes.json')}`);
 });
 
 await test('offline edits queue and flush when back online', async ({ ctx, page }) => {
@@ -395,6 +456,110 @@ await test('a full browser storage is reported, not silently lost', async ({ pag
   });
   expect(out.st.status === 'error' && /storage is full/i.test(out.st.error?.message || ''), `status should say storage is full, got ${out.st.status}: ${out.st.error?.message}`);
   expect(out.thrown === 'StorageFullError', `upsert should reject with StorageFullError, got ${out.thrown}`);
+});
+
+// ---------- 1.2: what counts as "error", and files that aren't lists ----------
+
+await test('a push that gives up after repeated conflicts is an error, not pending', async ({ page }) => {
+  await page.evaluate(() => window.mk('giveup', { notes: 'data/notes.json' }));
+  for (let i = 0; i < 3; i++) failNext('PUT', /notes\.json$/, 409, { message: 'data/notes.json does not match' });
+  const st = await page.evaluate(async () => { await S.upsert('notes', { id: 'a' }); return S.syncStatus(); });
+  expect(st.status === 'error', `status should be error, got ${st.status}`);
+  expect(/Gave up/.test(st.error?.message || ''), `error should say it gave up, got ${st.error?.message}`);
+  expect(await page.evaluate(() => S.cache.isDirty('data/notes.json')), 'the edit should stay queued');
+});
+
+await test('a GitHub 5xx and a dropped connection stay pending', async ({ page }) => {
+  await page.evaluate(() => window.mk('transient', { notes: 'data/notes.json' }));
+  failNext('PUT', /notes\.json$/, 503, { message: 'Service Unavailable' });
+  const a = await page.evaluate(async () => { await S.upsert('notes', { id: 'a' }); return S.syncStatus(); });
+  expect(a.status === 'pending' && a.error?.name === 'ServerError', `5xx: got ${a.status} / ${a.error?.name}`);
+  failNext('PUT', /notes\.json$/, 0);
+  const b = await page.evaluate(async () => { await S.upsert('notes', { id: 'b' }); return S.syncStatus(); });
+  expect(b.status === 'pending' && b.error?.name === 'NetworkError', `network: got ${b.status} / ${b.error?.name}`);
+  await page.evaluate(() => S.flushQueue());
+  expect(ids('data/notes.json') === 'a,b', `the retry should go through, remote has ${ids('data/notes.json')}`);
+});
+
+await test('a collection file that isn’t a list is never overwritten by a merge', async ({ page }) => {
+  // e.g. another app's file, after two apps were pointed at the same folder
+  const foreign = { notes: [{ id: 'x', text: 'someone else’s data' }], version: 3 };
+  setRemote('data/notes.json', JSON.stringify(foreign));
+  await page.evaluate(() => window.mk('notalist', { notes: 'data/notes.json' }));
+  const st = await page.evaluate(async () => { await S.upsert('notes', { id: 'mine' }); return S.syncStatus(); });
+  expect(JSON.stringify(remoteJson('data/notes.json')) === JSON.stringify(foreign), `the remote file was changed: ${dec(repo.get('data/notes.json').content)}`);
+  expect(st.status === 'error' && st.error?.name === 'ShapeError', `got ${st.status} / ${st.error?.name}`);
+  expect(/data\/notes\.json/.test(st.error.message) && /an object/.test(st.error.message), `message should name the file and what it found: ${st.error.message}`);
+  const local = await page.evaluate(() => ({ ids: S.get('notes').map((n) => n.id), dirty: S.cache.isDirty('data/notes.json') }));
+  expect(local.ids.join() === 'mine' && local.dirty, `the local edit should be kept and queued: ${JSON.stringify(local)}`);
+  // Once the file is sorted out in the repo, the queued edit goes through.
+  repo.delete('data/notes.json');
+  await page.evaluate(() => S.flushQueue());
+  expect(ids('data/notes.json') === 'mine', `after the fix the edit should upload, remote has ${ids('data/notes.json')}`);
+});
+
+await test('records without an id are never merged away', async ({ page }) => {
+  const remote = [{ text: 'hand-written 1' }, { text: 'hand-written 2' }];
+  setRemote('data/notes.json', JSON.stringify(remote));
+  await page.evaluate(() => window.mk('noids', { notes: 'data/notes.json' }));
+  const st = await page.evaluate(async () => { await S.upsert('notes', { id: 'mine' }); return S.syncStatus(); });
+  expect(JSON.stringify(remoteJson('data/notes.json')) === JSON.stringify(remote), 'both id-less records must survive');
+  expect(st.status === 'error' && /without an id/.test(st.error?.message || ''), `got ${st.status}: ${st.error?.message}`);
+});
+
+await test('refresh never loads a file that isn’t a list, and still loads the others', async ({ page }) => {
+  setRemote('data/a.json', JSON.stringify({ not: 'a list' }));
+  setRemote('data/b.json', JSON.stringify([{ id: 'b1' }]));
+  await page.evaluate(() => window.mk('shape-refresh', { a: 'data/a.json', b: 'data/b.json' }));
+  const out = await page.evaluate(async () => {
+    await S.refresh();
+    return { a: S.get('a'), b: S.get('b').length, st: S.syncStatus() };
+  });
+  expect(Array.isArray(out.a) && out.a.length === 0, `a should stay an empty list locally, got ${JSON.stringify(out.a)}`);
+  expect(out.b === 1, 'b.json should still load');
+  expect(out.st.status === 'error' && /a\.json/.test(out.st.error?.message || ''), `status should name a.json, got ${out.st.status}: ${out.st.error?.message}`);
+});
+
+await test('the error report explains the failure and never contains the token or password', async ({ page }) => {
+  const out = await page.evaluate(async () => {
+    await window.mk('report', { notes: 'data/notes.json' });
+    S.setToken('ghp_DO_NOT_LEAK_123');      // the fake answers 401 to anything but "tok"
+    S.setPassword('hunter2-DO_NOT_LEAK');
+    await S.upsert('notes', { id: 'a' });
+    const { errorReport } = await import('/settings-ui.js');
+    return { report: errorReport(S), st: S.syncStatus() };
+  });
+  expect(out.st.status === 'error' && out.st.error?.name === 'AuthError', `expected an auth error, got ${out.st.status}`);
+  for (const want of [/AuthError/, /401/, /me\/data-repo\/data/, /data\/notes\.json/, /ghsync 1\.3/]) {
+    expect(want.test(out.report), `report should match ${want}:\n${out.report}`);
+  }
+  expect(!/DO_NOT_LEAK/.test(out.report), `report leaked a secret:\n${out.report}`);
+});
+
+await test('a refresh that GitHub rejects is reported; a dropped connection is not', async ({ page }) => {
+  setRemote('data/notes.json', JSON.stringify([{ id: 'a' }]));
+  await page.evaluate(() => window.mk('refresh-errors', { notes: 'data/notes.json' }));
+  failNext('GET', /notes\.json$/, 0);
+  const blip = await page.evaluate(async () => { S.refreshStatus(); await S.refresh(); return S.syncStatus(); });
+  expect(blip.status === 'ok' && !blip.error, `a network blip should change nothing, got ${blip.status}: ${blip.error?.message}`);
+  failNext('GET', /notes\.json$/, 400, { message: 'Bad request' });
+  const bad = await page.evaluate(async () => { await S.refresh(); return S.syncStatus(); });
+  expect(bad.status === 'error' && bad.error?.name === 'RequestError', `got ${bad.status}: ${bad.error?.name}`);
+});
+
+await test('the example app: clicking "sync error" opens the copyable report', async ({ page }) => {
+  await page.evaluate(() => {
+    localStorage.setItem('notes.datarepo', JSON.stringify({ owner: 'me', repo: 'data-repo' }));
+    localStorage.setItem('notes.pat', 'expired-token'); // the fake answers 401
+  });
+  await page.reload();
+  await page.waitForFunction(() => document.getElementById('badge').textContent === 'sync error');
+  await page.getByRole('button', { name: 'sync error' }).click();
+  const text = await page.locator('dialog[open] textarea').inputValue();
+  expect(/AuthError: GitHub auth failed \(401\)/.test(text), `report should explain the 401:\n${text}`);
+  expect(!text.includes('expired-token'), 'the report must not contain the token');
+  await page.locator('dialog[open]').getByRole('button', { name: 'Close' }).click();
+  expect((await page.locator('dialog').count()) === 0, 'Close should remove the dialog');
 });
 
 await browser.close();

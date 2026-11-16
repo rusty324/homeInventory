@@ -220,14 +220,14 @@ export function markDone(t) {
     body: h('div', { class: 'form-grid' },
       field('Date', date), field('Cost ($)', cost), field('Note', note, { wide: true })),
     saveLabel: 'Log it',
-    onSave: () => {
+    onSave: async () => {
       if (!date.value) { toast('Pick a date', 'error'); return false; }
       t = tasks().find((x) => x.id === t.id) || t; // the row may have been rendered before a sync
       const history = [...(t.history || []), {
         id: uid(), date: date.value, note: note.value.trim(), cost: cost.value === '' ? '' : Math.round(Number(cost.value) * 100) / 100,
       }];
       const lastDone = !t.lastDone || date.value > t.lastDone ? date.value : t.lastDone;
-      saveRecord('tasks', { ...t, history, lastDone });
+      await saveRecord('tasks', { ...t, history, lastDone });
       const next = dueDate({ ...t, lastDone });
       toast(next ? `Logged — next due ${shortDate(next)}` : 'Logged');
       return true;
@@ -294,11 +294,16 @@ export function editTask(task = null, preset = null) {
       field('Notes', notes, { wide: true }),
       h('label', { class: 'inline' }, paused, ' Paused (hide from due lists)'),
       task ? field('Log', histEl, { wide: true }) : null),
-    extraActions: task && !t.paused ? [h('button', { type: 'button', class: 'btn secondary', onclick: (e) => { e.target.closest('dialog').close(); markDone(task); } }, '✓ Log done')] : [],
-    onSave: () => {
+    extraActions: task && !t.paused ? [h('button', { type: 'button', class: 'btn secondary', onclick: (e) => {
+      const dlg = e.target.closest('dialog');
+      // Logging replaces this form, so unsaved edits here would vanish.
+      if (dlg.isDirty?.()) { toast('Save or cancel your changes first', 'error'); return; }
+      dlg.close(); markDone(task);
+    } }, '✓ Log done')] : [],
+    onSave: async () => {
       if (!name.value.trim()) { toast('Name the task', 'error'); return false; }
       if (unit.value !== 'once' && !(Number(every.value) >= 1)) { toast('Repeat interval must be at least 1', 'error'); return false; }
-      saveRecord('tasks', {
+      await saveRecord('tasks', {
         ...t,
         name: name.value.trim(),
         category: category.input.value.trim(),

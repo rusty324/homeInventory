@@ -132,7 +132,7 @@ async function newDevice() {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { // Chrome logs every non-2xx fetch; 404/409 are expected protocol here.
     if ((m.type() === 'error' || m.type() === 'warning') && !m.text().startsWith('Failed to load resource')
-      && !m.text().includes('GitHub API 500') /* injected deliberately via FAIL_PUTS */) errors.push(m.text()); logs.push(`${((Date.now() - T0) / 1000).toFixed(2)} ${ctxName} ${m.type()}: ${m.text()}`.slice(0, 300)); if (process.env.DEBUG) console.log('[page]', m.type(), m.text()); });
+      && !m.text().includes('(500)') /* injected deliberately via FAIL_PUTS */) errors.push(m.text()); logs.push(`${((Date.now() - T0) / 1000).toFixed(2)} ${ctxName} ${m.type()}: ${m.text()}`.slice(0, 300)); if (process.env.DEBUG) console.log('[page]', m.type(), m.text()); });
   await page.addInitScript(() => {
     window.__printed = 0;
     window.print = () => { window.__printed++; };
@@ -367,7 +367,15 @@ try {
   check(await dialog(page).getByLabel('Room for Pendant lights').inputValue() === 'room-kitchen', 'an existing fixture starts in its usual room');
   await dialog(page).getByLabel('Room for Pendant lights').selectOption('');
   check(await dialog(page).getByLabel('Room for Pendant lights').inputValue() === '', '…and can still be changed per breaker');
+  // The form has unsaved changes, so Esc asks before throwing them away.
   await page.keyboard.press('Escape');
+  const discard = page.locator('dialog.confirm');
+  check(await discard.getByText('Discard your changes?').isVisible(), 'Esc on an edited form asks before discarding');
+  await discard.getByRole('button', { name: 'Cancel' }).click();
+  check(await dialog(page).getByLabel('Room for Pendant lights').isVisible(), 'Cancel keeps the form open');
+  await page.keyboard.press('Escape');
+  await page.locator('dialog.confirm').getByRole('button', { name: 'Discard' }).click();
+  check(await until(async () => (await page.locator('dialog[open]').count()) === 0), 'Discard closes it');
 
   // Settings: the list, rename (updates breakers) and delete (removes from breakers).
   await page.click('[data-tab=settings]');
@@ -621,7 +629,7 @@ try {
   await uploadAllB.click();
   check(await until(() => logs.some((l) => l.includes('dev2') && l.includes('toast: Upload didn’t finish'))), 'Upload all reports failure when writes fail');
   check(!logs.some((l) => l.includes('dev2') && l.includes('toast: Uploaded all local data')), 'no false success toast');
-  check(await until(() => B.page.locator('.sync-problem').isVisible()) && (await B.page.locator('.sync-problem').textContent()).includes('GitHub API 500'),
+  check(await until(() => B.page.locator('.sync-problem').isVisible()) && (await B.page.locator('.sync-problem').textContent()).includes('(500)'),
     'Settings shows the sync problem and its cause (no hover needed on a phone)');
   FAIL_PUTS = false;
   await B.page.locator('.sync-problem').getByRole('button', { name: 'Retry now' }).click();

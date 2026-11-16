@@ -49,6 +49,26 @@ export class RequestError extends Error {
     this.path = path;
   }
 }
+// No HTTP response at all: offline, DNS, a dropped connection. fetch() rejects
+// with a bare TypeError then, which is indistinguishable from a bug unless it
+// is wrapped here. Transient.
+export class NetworkError extends Error {
+  constructor(path, cause) {
+    super(`Couldn't reach GitHub for ${path} (${cause?.message || 'network error'}) — will retry`);
+    this.name = 'NetworkError';
+    this.path = path;
+    this.cause = cause;
+  }
+}
+// GitHub itself failed (5xx). Transient.
+export class ServerError extends Error {
+  constructor(status, path, message) {
+    super(`GitHub had a server error (${status}) for ${path}${message ? `: ${message}` : ''} — will retry`);
+    this.name = 'ServerError';
+    this.status = status;
+    this.path = path;
+  }
+}
 export class NotFoundError extends Error {
   constructor(path) {
     super(`Not found: ${path}`);
@@ -88,7 +108,20 @@ async function check(res, path) {
   // the file does not exist". Any other 422 is a bad request, not a conflict.
   if (status === 409 || (status === 422 && /\bsha\b/i.test(message))) throw new ConflictError(path);
   if (status === 400 || status === 422) throw new RequestError(status, path, message);
-  throw new Error(`GitHub API ${status} for ${path}${message ? `: ${message}` : ''}`);
+  if (status >= 500) throw new ServerError(status, path, message);
+  const err = new Error(`GitHub API ${status} for ${path}${message ? `: ${message}` : ''}`);
+  err.status = status;
+  throw err;
+}
+
+// Every request goes through here so a connection failure is a NetworkError,
+// never a bare TypeError.
+async function request(path, url, init) {
+  try {
+    return await fetch(url, init);
+  } catch (e) {
+    throw new NetworkError(path, e);
+  }
 }
 
 // Folder inside the data repo, canonicalised: blank -> 'data' (the default),
@@ -172,11 +205,11 @@ export function makeClient(repoCfgOrGetter, tokens) {
     // (encoding "none"); fetch those again with the raw media type (≤ 100 MB).
     async getFile(path) {
       const u = `${url(path)}?ref=${encodeURIComponent(cfg().branch)}`;
-      const res = await fetch(u, { headers: headers(), cache: 'no-store' });
+      const res = await request(path, u, { headers: headers(), cache: 'no-store' });
       await check(res, path);
       const json = await res.json();
       if (json.encoding === 'none' || (!json.content && json.size > 0)) {
-        const raw = await fetch(u, { headers: { ...headers(), Accept: 'application/vnd.github.raw+json' }, cache: 'no-store' });
+        const raw = await request(path, u, { headers: { ...headers(), Accept: 'application/vnd.github.raw+json' }, cache: 'no-store' });
         await check(raw, path);
         return { content: await raw.text(), sha: json.sha };
       }
@@ -191,7 +224,7 @@ export function makeClient(repoCfgOrGetter, tokens) {
         branch: cfg().branch,
       };
       if (sha) body.sha = sha;
-      const res = await fetch(url(path), {
+      const res = await request(path, url(path), {
         method: 'PUT',
         headers: { ...headers(), 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -203,7 +236,7 @@ export function makeClient(repoCfgOrGetter, tokens) {
 
     // sha is required by the API. Throws ConflictError on sha mismatch.
     async deleteFile(path, sha, message) {
-      const res = await fetch(url(path), {
+      const res = await request(path, url(path), {
         method: 'DELETE',
         headers: { ...headers(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, sha, branch: cfg().branch }),
@@ -213,7 +246,7 @@ export function makeClient(repoCfgOrGetter, tokens) {
 
     // -> [{ name, path, sha }] with logical paths ; [] if the directory doesn't exist yet
     async listDir(path) {
-      const res = await fetch(`${url(path)}?ref=${encodeURIComponent(cfg().branch)}`, { headers: headers(), cache: 'no-store' });
+      const res = await request(path, `${url(path)}?ref=${encodeURIComponent(cfg().branch)}`, { headers: headers(), cache: 'no-store' });
       if (res.status === 404) return [];
       await check(res, path);
       const json = await res.json();
@@ -226,7 +259,8 @@ export function makeClient(repoCfgOrGetter, tokens) {
     // Run a workflow in the data repo via workflow_dispatch. Only needed by
     // apps whose data repo has Actions; the PAT then also needs Actions:write.
     async dispatchWorkflow(workflowFile) {
-      const res = await fetch(
+      const res = await request(
+        workflowFile,
         `${API}/repos/${cfg().owner}/${cfg().repo}/actions/workflows/${workflowFile}/dispatches`,
         {
           method: 'POST',
@@ -239,7 +273,7 @@ export function makeClient(repoCfgOrGetter, tokens) {
 
     // Cheap validity probe for the settings panel. -> { private: boolean }
     async validate() {
-      const res = await fetch(`${API}/repos/${cfg().owner}/${cfg().repo}`, { headers: headers(), cache: 'no-store' });
+      const res = await request('repo', `${API}/repos/${cfg().owner}/${cfg().repo}`, { headers: headers(), cache: 'no-store' });
       await check(res, 'repo');
       const json = await res.json().catch(() => ({}));
       return { private: json.private !== false };

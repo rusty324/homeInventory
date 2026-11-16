@@ -102,11 +102,22 @@ export function openModal({ title, body, onSave, saveLabel = 'Save', onDelete, d
   const dlg = h('dialog', { class: `modal${wide ? ' wide' : ''}` });
   dlg.tips = tips;
   const close = () => { dlg.close(); };
+  // Esc, ✕ and Cancel all used to drop a half-filled form without a word.
+  // Anything typed or picked marks the form dirty; leaving then asks first.
+  let dirty = false;
+  dlg.isDirty = () => dirty;
+  const leave = async () => {
+    if (onSave && dirty && !(await confirmDialog('Discard your changes?', { okLabel: 'Discard' }))) return;
+    close();
+  };
+  dlg.addEventListener('input', () => { dirty = true; });
+  dlg.addEventListener('change', () => { dirty = true; });
+  dlg.addEventListener('cancel', (e) => { if (onSave && dirty) { e.preventDefault(); leave(); } });
   dlg.addEventListener('close', () => dlg.remove());
   const form = h('form', { method: 'dialog', novalidate: true },
     h('header', { class: 'modal-head' },
       h('h2', {}, title),
-      h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', onclick: close }, '✕')),
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', onclick: leave }, '✕')),
     h('div', { class: 'modal-body' }, body),
     h('footer', { class: 'modal-foot' },
       onDelete ? h('button', {
@@ -116,7 +127,7 @@ export function openModal({ title, body, onSave, saveLabel = 'Save', onDelete, d
       }, deleteLabel) : null,
       ...extraActions,
       h('span', { class: 'spacer' }),
-      h('button', { type: 'button', class: 'btn secondary', onclick: close }, onSave ? 'Cancel' : 'Close'),
+      h('button', { type: 'button', class: 'btn secondary', onclick: leave }, onSave ? 'Cancel' : 'Close'),
       onSave ? h('button', { type: 'submit', class: 'btn' }, saveLabel) : null));
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

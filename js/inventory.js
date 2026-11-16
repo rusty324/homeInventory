@@ -29,6 +29,10 @@ const COLUMNS = [
   { key: 'manuals', label: 'Manuals', numericSort: true },
 ];
 
+// On a phone the table keeps what you scan for — name, cost, warranty,
+// location — and the rest is one tap away in the item (css: .wide-only).
+const PHONE_HIDDEN = ['brand', 'model', 'acquiredOn', 'description', 'manuals'];
+
 const state = { q: '', room: '', warranty: '', sort: 'name', dir: 1 };
 const WARRANTY_FILTERS = [
   ['', 'Any warranty'], ['covered', 'Under warranty'], ['soon', `Ending within ${WARRANTY_SOON_DAYS} days`],
@@ -100,7 +104,7 @@ export function refresh() {
   const head = h('tr', {}, COLUMNS.map((c) => {
     if (c.key === 'photo') return showPhotos ? h('th', { class: 'col-photo' }) : null;
     const on = state.sort === c.key;
-    return h('th', { class: `${c.num ? 'num' : ''}${c.key === 'description' ? ' desc' : ''}`, 'aria-sort': on ? (state.dir > 0 ? 'ascending' : 'descending') : 'none' },
+    return h('th', { class: `${c.num ? 'num' : ''}${c.key === 'description' ? ' desc' : ''}${PHONE_HIDDEN.includes(c.key) ? ' wide-only' : ''}`, 'aria-sort': on ? (state.dir > 0 ? 'ascending' : 'descending') : 'none' },
       h('button', {
         type: 'button',
         class: `sort${on ? ' on' : ''}`,
@@ -110,14 +114,14 @@ export function refresh() {
   const body = h('tbody', {}, list.map((i) => h('tr', { class: 'tappable', onclick: () => editItem(i) },
     showPhotos ? h('td', { class: 'col-photo' }, i.photoIds?.[0] ? photoThumb(i.photoIds[0], { size: 'sm' }) : null) : null,
     h('td', { class: 'strong' }, i.name),
-    h('td', {}, i.brand || ''),
-    h('td', { class: 'mono' }, i.model || ''),
-    h('td', { class: 'nowrap' }, shortDate(i.acquiredOn)),
+    h('td', { class: 'wide-only' }, i.brand || ''),
+    h('td', { class: 'mono wide-only' }, i.model || ''),
+    h('td', { class: 'nowrap wide-only' }, shortDate(i.acquiredOn)),
     h('td', { class: 'num' }, money(i.cost)),
     h('td', { class: 'nowrap' }, warrantyPill(i)),
     h('td', {}, locationText(i)),
-    h('td', { class: 'desc' }, i.description || ''),
-    h('td', { class: 'col-docs' }, docLinks(i.manuals, { compact: true })))));
+    h('td', { class: 'desc wide-only' }, i.description || ''),
+    h('td', { class: 'col-docs wide-only' }, docLinks(i.manuals, { compact: true })))));
   results.append(
     h('div', { class: 'table-wrap' }, h('table', { class: 'data-table' }, h('thead', {}, head), body)),
     h('p', { class: 'muted totals' }, `${list.length} item${list.length === 1 ? '' : 's'}${list.length !== items().length ? ` (of ${items().length})` : ''} · total ${money(total) || '$0.00'}`));
@@ -172,7 +176,7 @@ export function editItem(item = null) {
       if (!name.value.trim()) { toast('Give the item a name', 'error'); return false; }
       const photoIds = await pics.commit();
       const manualList = await manuals.commit();
-      saveRecord('items', {
+      await saveRecord('items', {
         ...it,
         name: name.value.trim(),
         brand: brand.input.value.trim(),
@@ -191,7 +195,11 @@ export function editItem(item = null) {
       return true;
     },
     onDelete: item ? async () => {
-      if (!(await confirmDialog(`Delete “${item.name}”?`))) return false;
+      const linked = store.get('tasks').filter((t) => t.itemId === item.id).length;
+      const msg = linked
+        ? `“${item.name}” is linked to ${linked} maintenance task${linked === 1 ? '' : 's'}; ${linked === 1 ? 'it keeps' : 'they keep'} running without the link. Delete anyway?`
+        : `Delete “${item.name}”?`;
+      if (!(await confirmDialog(msg))) return false;
       store.remove('items', item.id);
       dropPhotos(item.photoIds);
       dropDocs(item.manuals);
@@ -209,7 +217,7 @@ function exportCsv() {
   const rows = filtered().map((i) => [i.name, i.brand, i.model, i.serial, i.acquiredOn, i.cost, i.warrantyUntil, i.warrantyNotes, roomName(i.roomId), i.locationDetail, i.description, (i.photoIds || []).length,
     (i.manuals || []).map((d) => (d.kind === 'link' ? d.url : `${docLabel(d)} (uploaded file)`)).join(' | ')]);
   const csv = [cols, ...rows].map((r) => r.map(esc).join(',')).join('\r\n');
-  const a = h('a', { href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })), download: `home-inventory-${new Date().toISOString().slice(0, 10)}.csv` });
+  const a = h('a', { href: URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' })), download: `home-inventory-${today()}.csv` });
   document.body.append(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);

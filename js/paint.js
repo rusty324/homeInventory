@@ -251,7 +251,7 @@ export function editPaint(paint = null, presetRoomId = '') {
         return false;
       }
       const photoIds = await pics.commit();
-      saveRecord('paints', {
+      await saveRecord('paints', {
         ...p,
         colorName: colorName.value.trim(),
         colorCode: colorCode.value.trim(),

@@ -34,6 +34,13 @@ See README.md for the feature overview and layout.
 - Each tab module exports `mount(root)` (build toolbar once) and `refresh()`
   (re-render results from the store). `main.js` calls `refresh()` on store
   changes, deferred while a dialog is open.
+- `await saveRecord(...)` in every form's `onSave`. It rejects only when
+  localStorage is full (the edit was not kept); un-awaited, the dialog closed
+  and looked saved.
+- `openModal` asks before discarding an edited form (Esc, ✕, Cancel). Code
+  that closes a form itself should check `dialog.isDirty()` first.
+- `sw.js` + `js/offline.js`: the app opens with no connection (network-first,
+  this site's own files only — never the GitHub API). `node tests/offline.mjs`.
 - Run `node tests/e2e.mjs` after changes (needs `playwright` resolvable from
   the repo; `node_modules/` is gitignored). After touching sync, also run
   `node tests/http-cache.mjs` (real HTTPS + browser HTTP cache).

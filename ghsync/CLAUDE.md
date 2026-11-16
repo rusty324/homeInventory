@@ -51,7 +51,7 @@ configured by its user, and is therefore local-only forever).
 4. Render the settings sections and a status badge:
 
    ```js
-   import { syncSections, setupRows, badgeState } from '../ghsync/settings-ui.js';
+   import { syncSections, setupRows, badgeState, errorPanel } from '../ghsync/settings-ui.js';
 
    for (const spec of syncSections({ store, toast, onChange: rerender, reopen })) {
      // spec = { id, name, state, body }: wrap body in whatever chrome you use
@@ -59,6 +59,16 @@ configured by its user, and is therefore local-only forever).
    ```
    Include `ghsync.css` only if the app has no styles for `.btn` / `.field` /
    `.field-row` / `.muted` / `.list-row`.
+
+   Make the badge open the error details when there are some — "sync error"
+   alone can't be diagnosed, and phones don't show tooltips:
+
+   ```js
+   const { text, cls, title, actionable } = badgeState(store);
+   // render text/cls; set role="button" + tabindex="0" while actionable
+   badgeEl.onclick = () => badgeState(store).actionable
+     && openYourModal('Sync error', errorPanel(store, { toast, onRetry }));
+   ```
 5. Call `store.init()` once at startup (background load, cross-tab sync,
    offline retry). Re-render on `onChange` events.
 6. Add `.gitignore` entries for `data/` and `node_modules/`, and copy
@@ -83,12 +93,14 @@ Returned:
 - Config — `getDataRepo/setDataRepo/hasDataRepo`, `getToken/setToken/hasToken`,
   `setPassword(pw)` → previous password, `encryption()` → `{enabled, locked}`.
 - Status — `onChange(fn)` → unsubscribe; `syncStatus()` →
-  `{status, error, connected}` where status is `'local' | 'ok' | 'pending' |
-  'error'`; `refreshStatus()`, `canSync()`, `emit(event)`.
+  `{status, error, errorAt, connected, queued}` where status is `'local' |
+  'ok' | 'pending' | 'error'` and `queued` lists paths not yet uploaded;
+  `refreshStatus()`, `canSync()`, `emit(event)`.
   Events: `{type:'changed', collection}` and `{type:'sync-status', status, error}`.
-  `'pending'` = queued, will retry by itself (offline, 5xx, rate limit).
-  `'error'` = needs the user (bad token, rejected request, full storage,
-  unreadable file in the repo).
+  `'pending'` = queued, will retry by itself: only `NetworkError`,
+  `ServerError` (5xx) and `RateLimitError`. `'error'` = everything else —
+  needs the user. Either way the write stays queued and keeps retrying.
+- Version — `VERSION` (also printed in error reports).
 - Sync — `refresh()`, `flushQueue()`, `rewriteEncryptedFiles(collections?)`,
   `pushAllData()`, `init()`.
 - Escape hatches for app-owned paths — `readFile(path)`, `writeFile(path, data)`,
@@ -98,8 +110,16 @@ Returned:
 Error classes (exported from `store.js`; distinguish by `instanceof`, never by
 message text): `NotConfiguredError`, `AuthError` (401/403), `NotFoundError`,
 `ConflictError` (409, or a 422 about the sha), `RateLimitError` (403/429 rate
-limit — transient), `RequestError` (400/other 422 — GitHub rejected the
-request; carries GitHub's message), `StorageFullError`, `CorruptFileError`.
+limit — transient), `NetworkError` (no response at all — transient),
+`ServerError` (5xx — transient), `RequestError` (400/other 422 — GitHub
+rejected the request; carries GitHub's message), `StorageFullError`,
+`CorruptFileError` (a repo file that isn't JSON), `ShapeError` (a collection
+file that isn't a list of records with ids — refused, never overwritten).
+
+`settings-ui.js` also exports `badgeState(store)` → `{text, cls, title,
+actionable}`, `errorReport(store)` → plain-text diagnostics (no token, no
+password), and `errorPanel(store, { toast, onRetry })` → that report in a
+read-only box with Copy and Retry now, for the host's own modal.
 
 `blobs.js` exports `createBlobStore(store, { dbName, dir, kind })` and the
 input helpers `processImage(file)` (downscale to JPEG + thumbnail),
@@ -140,7 +160,13 @@ It is isomorphic (WebCrypto only), so Node workflows can import the same file.
 9. **Pushes of one path are serialized** (`push()` chains per path) and a file
    is only marked clean if its cache still equals what was sent. Don't add a
    second write path that bypasses `push()` for files in `files`.
-10. **Big binaries are not collection fields.** localStorage holds ~5 MB and
+10. **Never guess at a file's shape.** A collection file the merge doesn't
+    understand — not a list, or records without ids — is refused with
+    `ShapeError`, never treated as empty: "empty" is how the merge used to
+    overwrite another app's file. Only `null` reads as empty (old copies
+    wrote it for unused collections). Don't add a fallback that "repairs" a
+    file by replacing it.
+11. **Big binaries are not collection fields.** localStorage holds ~5 MB and
     every collection write re-uploads the whole file. Store an id in the
     record and the bytes through `blobs.js`.
 
@@ -205,17 +231,23 @@ PUT body.
   password this browser doesn't have. ghsync keeps the old cache and old sha
   and retries later; never overwrite a locked file, that destroys data. The
   settings UI reverts a password that doesn't unlock.
-- **Status stuck on `pending`** — the queue is non-empty: offline, rate
-  limited, GitHub 5xx. `syncStatus().error` says which. Settings shows it with
-  a "Retry now" button.
+- **Status stuck on `pending`** — the queue is non-empty and the cause clears
+  by itself: offline, rate limited, GitHub 5xx. `syncStatus().error` says
+  which; the badge opens `errorPanel()` with a "Retry now" button.
 - **Status `error`** — expired/wrong-scope token (`AuthError`), a request
-  GitHub rejects (`RequestError`), full localStorage (`StorageFullError`), or
-  a hand-edited file that isn't valid JSON (`CorruptFileError`; the local copy
-  is kept and the other files still load — fix or delete the file in the repo).
-- **A deleted record reappearing** — the merge is per id with local winning, so
-  a delete on one device can be resurrected by another device's stale copy.
-  Accepted trade-off for a single-user tool; use a tombstone field if it
-  matters.
+  GitHub rejects (`RequestError`), full localStorage (`StorageFullError`), a
+  hand-edited file that isn't valid JSON (`CorruptFileError`), a collection
+  file that isn't a list of records with ids (`ShapeError` — usually two apps
+  sharing a folder), repeated conflicts, or a bug. Ask the user to tap the
+  badge and paste the report; it names the class, file and HTTP status. In
+  the file cases the local copy is kept and the other files still load — fix,
+  move or delete the file in the repo, then Retry now.
+- **Two devices edit the same record** — the merge is per record id, not per
+  field: whichever device pushes second wins that whole record. Records only
+  one of them touched are kept from each side, and a delete on either side
+  sticks (1.3; before that every local record won, so a stale device reverted
+  the other's edits and resurrected its deletes). A path queued by an older
+  version has no list of edited ids and still merges as "local wins" once.
 - **Large files** — the Contents API only inlines content below 1 MB;
   `getFile` falls back to the raw media type above that (up to 100 MB), but
   every write still re-uploads the whole file. Shard a collection by month or

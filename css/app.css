@@ -487,3 +487,12 @@ th.num .sort { float: right; }
 @media (max-width: 380px) {
   .form-grid { grid-template-columns: 1fr; }
 }
+
+/* ---------- phone ---------- */
+/* The badge and the settings link are small on purpose; their tap area isn't. */
+.gh-badge, .tab-settings { position: relative; }
+.gh-badge::after, .tab-settings::after { content: ''; position: absolute; inset: -11px -4px; }
+/* Ten columns don't fit a phone: keep the ones you scan for (inventory.js). */
+@media (max-width: 600px) {
+  .data-table .wide-only { display: none; }
+}

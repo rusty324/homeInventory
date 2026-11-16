@@ -393,7 +393,7 @@ export function editBreaker(brk = null, panelId = state.panelId, slot = '') {
       field('Feeds sub-panel', feeds),
       h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Legend font scale'), h('div', { class: 'range-row' }, scale, scaleOut)),
       field('Notes', notes, { wide: true })),
-    onSave: () => {
+    onSave: async () => {
       const panel = panelById(panelEl.value);
       const s = Number(slotEl.value);
       if (!panel) { toast('Choose a panel', 'error'); return false; }
@@ -425,7 +425,7 @@ export function editBreaker(brk = null, panelId = state.panelId, slot = '') {
       const clash = breakersIn(panel.id).find((o) => o.id !== rec.id && slotsOf(o).some((x) => mine.has(x))
         && !(rec.half && o.half && o.half !== rec.half && Number(o.slot) === rec.slot && (Number(o.poles) || 1) === 1 && rec.poles === 1));
       if (clash) toast(`Note: overlaps “${breakerTitle(clash)}” in slot ${slotText(clash)}`, 'error');
-      saveRecord('breakers', rec);
+      await saveRecord('breakers', rec);
       state.panelId = panel.id;
       return true;
     },
@@ -469,10 +469,10 @@ export function editPanel(panel = null) {
       field('Main breaker (A)', mainAmps),
       field('Service', voltage),
       field('Notes', notes, { wide: true })),
-    onSave: () => {
+    onSave: async () => {
       if (!name.value.trim()) { toast('Name the panel', 'error'); return false; }
       const n = Math.max(2, Math.round(Number(spaces.value) || 40));
-      saveRecord('panels', {
+      await saveRecord('panels', {
         ...p,
         name: name.value.trim(),
         property: property.input.value.trim(),

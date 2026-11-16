@@ -163,9 +163,10 @@ decisions *about* those records (edits, links, hidden flags) in a separate
 browser-owned overlay file that's merged on read.
 
 ghsync does handle browser-vs-browser conflicts — a second device or tab —
-by re-fetching on a sha mismatch and merging per record `id`, with local
-unpushed records winning. A record deleted on one device can resurrect from
-such a merge; that's an accepted trade for a single-user tool.
+by re-fetching on a sha mismatch and merging per record `id`: the records
+this device edited since its last push win, and everything else — newer
+versions and deletions alike — comes from the repo. If both devices edited
+the same record, the one that pushes second wins that record.
 
 ## Encryption (optional)
 
