@@ -1,6 +1,9 @@
 // Settings: ghsync's data-repo / token / encryption sections, the shared room
-// list, and a JSON backup (records only — photos and files live in the data repo).
+// list, and a JSON backup (records only — photos and files live in the data repo). Restoring
+// deletes attachments that only the replaced records used.
 
+import { dropPhotos } from './photo-ui.js';
+import { dropDocs } from './docs-ui.js';
 import { today } from './dates.js';
 import { h, clear, toast, confirmDialog } from './ui.js';
 import { syncSections, setupRows } from '../ghsync/settings-ui.js';
@@ -119,6 +122,20 @@ function stateNode(section) {
   return el;
 }
 
+// Attachment ids referenced by these record lists: photoIds on any record,
+// and uploaded files in `manuals`.
+function attachmentRefs(lists) {
+  const photos = new Set();
+  const files = new Set();
+  for (const list of lists) {
+    for (const r of list) {
+      for (const id of r?.photoIds || []) photos.add(id);
+      for (const d of r?.manuals || []) if (d?.kind === 'file' && d.fileId) files.add(d.fileId);
+    }
+  }
+  return { photos, files };
+}
+
 function backupSection() {
   const fileInput = h('input', { type: 'file', accept: 'application/json,.json', hidden: true });
   fileInput.addEventListener('change', async () => {
@@ -133,8 +150,18 @@ function backupSection() {
       if (!names.length) throw new Error('The backup contains no records');
       const counts = names.map((c) => `${cols[c].length} ${c}`).join(', ');
       if (!(await confirmDialog(`Replace current data with ${counts}? This overwrites what is in this browser (and the data repo, if connected).`, { okLabel: 'Replace' }))) return;
+      const before = attachmentRefs(names.map((c) => store.get(c)));
       for (const c of names) await store.save(c, cols[c].filter((r) => r && typeof r.id === 'string'));
-      toast('Backup restored');
+      // Photos and files only the replaced records used are now orphans: in
+      // this browser and in the data repo. Delete those — and only those, so
+      // anything the restored records still point at stays.
+      const after = attachmentRefs(names.map((c) => store.get(c)));
+      const gonePhotos = [...before.photos].filter((id) => !after.photos.has(id));
+      const goneFiles = [...before.files].filter((id) => !after.files.has(id));
+      await dropPhotos(gonePhotos);
+      await dropDocs(goneFiles.map((fileId) => ({ kind: 'file', fileId })));
+      const n = gonePhotos.length + goneFiles.length;
+      toast(n ? `Backup restored; removed ${n} attachment${n === 1 ? '' : 's'} no record uses any more` : 'Backup restored');
     } catch (e) {
       toast(e.message, 'error');
     }

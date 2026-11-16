@@ -12,8 +12,12 @@ See README.md for the feature overview and layout.
 - Binary attachments are not collection fields. Records hold `photoIds` or
   `manuals` entries; the bytes live at `data/photos/<id>.json` /
   `data/files/<id>.json` via `ghsync/blobs.js`. Use `photoEditor()`/`docsEditor()`
-  in forms (they defer uploads to `commit()`), and `dropPhotos()`/`dropDocs()`
-  when deleting a record. Render user URLs only through `safeUrl()`.
+  in forms: `commit()` uploads new ones, then save the record, then
+  `finish()` deletes removed ones; on a failed save call `discard()` (deletes
+  what `commit()` uploaded). Never delete before the record is saved. Use
+  `dropPhotos()`/`dropDocs()` after the record's delete has succeeded.
+  Restore deletes attachments only the replaced records referenced
+  (`attachmentRefs()` in `js/settings.js`); `node tests/attachments.mjs`. Render user URLs only through `safeUrl()`.
 - Warranty reminders are derived from `item.warrantyUntil` (see
   `js/warranty.js`), never stored as maintenance tasks — keep it that way so
   editing the date on the item is the only thing needed.

@@ -174,9 +174,12 @@ export function editItem(item = null) {
       field('Manuals & documents', manuals.el, { wide: true })),
     onSave: async () => {
       if (!name.value.trim()) { toast('Give the item a name', 'error'); return false; }
-      const photoIds = await pics.commit();
-      const manualList = await manuals.commit();
-      await saveRecord('items', {
+      let photoIds;
+      let manualList;
+      try {
+        photoIds = await pics.commit();
+        manualList = await manuals.commit();
+        await saveRecord('items', {
         ...it,
         name: name.value.trim(),
         brand: brand.input.value.trim(),
@@ -191,7 +194,15 @@ export function editItem(item = null) {
         warrantyNotes: warrantyNotes.value.trim(),
         photoIds,
         manuals: manualList,
-      });
+        });
+      } catch (e) {
+        await pics.discard();
+        await manuals.discard();
+        throw e;
+      }
+      // Only now that the record no longer points at them.
+      await pics.finish();
+      await manuals.finish();
       return true;
     },
     onDelete: item ? async () => {
@@ -200,9 +211,9 @@ export function editItem(item = null) {
         ? `“${item.name}” is linked to ${linked} maintenance task${linked === 1 ? '' : 's'}; ${linked === 1 ? 'it keeps' : 'they keep'} running without the link. Delete anyway?`
         : `Delete “${item.name}”?`;
       if (!(await confirmDialog(msg))) return false;
-      store.remove('items', item.id);
-      dropPhotos(item.photoIds);
-      dropDocs(item.manuals);
+      await store.remove('items', item.id); // rejects (storage full) before anything is deleted
+      await dropPhotos(item.photoIds);
+      await dropDocs(item.manuals);
       return true;
     } : null,
   });
