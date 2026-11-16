@@ -171,7 +171,7 @@ export const ITEM_TIPS = {
   'Model number': 'From the rating plate or box — needed for parts, manuals and recalls.',
   'Serial number': 'Proves it’s yours for insurance and warranty claims.',
   'Acquisition date': 'When you got it. Warranty quick-fill buttons count from this date.',
-  'Purchase cost ($)': 'What you paid. The list shows a running total for insurance.',
+  'Purchase cost': 'What you paid, in the currency set under Settings → Display. The list shows a running total for insurance.',
   Room: 'Which room it’s in.',
   'Location detail': 'Where exactly, e.g. top shelf of the hall closet.',
   Description: 'Anything that identifies it: size, color, condition, accessories.',
@@ -196,7 +196,7 @@ export const TASK_TIPS = {
 
 export const DONE_TIPS = {
   Date: 'When you did it. The next due date counts from here.',
-  'Cost ($)': 'What it cost, if anything. History shows yearly totals.',
+  'Cost': 'What it cost, if anything, in the currency set under Settings → Display. History shows yearly totals.',
   Note: 'What you used or found, e.g. filter size, readings, who did it.',
 };
 
@@ -207,4 +207,6 @@ export const SETTINGS_TIPS = {
   'Folder in the repo': 'Where the app’s files go inside the repo: data by default, any folder, or / for the root.',
   'Personal access token': 'A fine-grained token with Contents read and write on the data repo only. It stays in this browser.',
   'Encryption password': 'Encrypts your data before it’s uploaded. There’s no recovery if you forget it.',
+  Currency: 'The currency costs are shown in. Changing it relabels amounts; it never converts them.',
+  'Feed URL': 'Paste this into your calendar app as a subscription. Anyone with it can read the feed.',
 };

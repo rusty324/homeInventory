@@ -246,6 +246,16 @@ await test('a legacy "null" file in the repo drops nothing local', async ({ page
   expect(ids('data/notes.json') === 'a,b,c', `remote has ${ids('data/notes.json')}`);
 });
 
+await test('a merge that took in another device\'s changes says so', async ({ page }) => {
+  await page.evaluate(() => window.mk('mergedev', { notes: 'data/notes.json' }));
+  await page.evaluate(() => { window.ev = []; S.onChange((e) => window.ev.push(e.type)); return S.save('notes', [{ id: 'a' }]); });
+  const quiet = await page.evaluate(() => window.ev.filter((t) => t === 'merged').length);
+  setRemote('data/notes.json', JSON.stringify([{ id: 'a' }, { id: 'theirs' }]));
+  await page.evaluate(() => S.upsert('notes', { id: 'b' }));
+  const after = await page.evaluate(() => window.ev.filter((t) => t === 'merged').length);
+  expect(quiet === 0 && after === 1, `merged events: ${quiet} before the conflict, ${after} after`);
+});
+
 await test('edits made before the repo file exists all upload', async ({ page }) => {
   await page.evaluate(() => window.mk('fresh', { notes: 'data/notes.json' }));
   await page.evaluate(() => S.save('notes', [{ id: 'a' }, { id: 'b' }]));
@@ -530,7 +540,7 @@ await test('the error report explains the failure and never contains the token o
     return { report: errorReport(S), st: S.syncStatus() };
   });
   expect(out.st.status === 'error' && out.st.error?.name === 'AuthError', `expected an auth error, got ${out.st.status}`);
-  for (const want of [/AuthError/, /401/, /me\/data-repo\/data/, /data\/notes\.json/, /ghsync 1\.3/]) {
+  for (const want of [/AuthError/, /401/, /me\/data-repo\/data/, /data\/notes\.json/, /ghsync 1\.4/]) {
     expect(want.test(out.report), `report should match ${want}:\n${out.report}`);
   }
   expect(!/DO_NOT_LEAK/.test(out.report), `report leaked a secret:\n${out.report}`);

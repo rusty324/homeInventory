@@ -43,6 +43,18 @@ See README.md for the feature overview and layout.
   and looked saved.
 - `openModal` asks before discarding an edited form (Esc, ✕, Cancel). Code
   that closes a form itself should check `dialog.isDirty()` first.
+- Costs are plain numbers; `money()` shows them in the currency set under
+  Settings → Display (`homeinv.currency`, a display setting only).
+- Occasional toolbar actions go in `overflowMenu()` (ui.js), not a new row.
+- Calendar feed (`js/calendar-feed.js`): an opt-in **secret gist** a calendar
+  can subscribe to, republished a few seconds after task/item changes. Anyone
+  with its URL can read it, so it is built with `buildIcs({ shared: true })`
+  (no notes, serials or warranty details). Uses the sync token, which needs
+  "Gists: read and write". Keep private fields out of the shared build.
+- Backup "with photos & files" embeds attachments as base64; restore puts
+  them back with `blobs.restore(id, rec)` (only if missing everywhere).
+- Text on a solid `--danger` fill uses `--on-danger` (white fails contrast
+  in dark mode). `node tests/features.mjs` checks dark-mode contrast.
 - `sw.js` + `js/offline.js`: the app opens with no connection (network-first,
   this site's own files only — never the GitHub API). `node tests/offline.mjs`.
 - Run `node tests/e2e.mjs` after changes (needs `playwright` resolvable from

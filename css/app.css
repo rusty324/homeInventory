@@ -17,6 +17,7 @@
   --ok-soft: #dcf2e3;
   --ok-text: #18603a;
   --pending-text: #7a5300;
+  --on-danger: #ffffff; /* text on a solid --danger fill */
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 2px 8px rgb(0 0 0 / 4%);
   --radius: 10px;
   color-scheme: light;
@@ -39,6 +40,7 @@
     --ok-soft: #1d3626;
     --ok-text: #8fd9aa;
     --pending-text: #f0c75e;
+    --on-danger: #2a0d09; /* white on the dark theme's light red was 2.3:1 */
     --shadow: none;
     color-scheme: dark;
   }
@@ -47,7 +49,7 @@
   --bg: #141816; --surface: #1c211f; --surface-2: #252b28; --text: #e6e9e7; --muted: #9aa39f;
   --border: #333b37; --accent: #6cc2a6; --accent-text: #0d1a15; --accent-soft: #22392f;
   --danger: #ff8a7a; --danger-soft: #3a1f1c; --warn-soft: #3a3016; --ok-soft: #1d3626;
-  --ok-text: #8fd9aa; --pending-text: #f0c75e; --shadow: none; color-scheme: dark;
+  --ok-text: #8fd9aa; --pending-text: #f0c75e; --on-danger: #2a0d09; --shadow: none; color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -212,6 +214,15 @@ textarea { resize: vertical; }
 .badge.t-gfci, .badge.t-df { background: #dbeafe; color: #1e40af; }
 .badge.t-afci { background: #ede9fe; color: #5b21b6; }
 .badge.t-hacr { background: #fef3c7; color: #92400e; }
+/* The breaker-type badges kept their light-theme chips in dark mode. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .badge.t-gfci, :root:not([data-theme="light"]) .badge.t-df { background: #1e2a4a; color: #a9c3ff; }
+  :root:not([data-theme="light"]) .badge.t-afci { background: #2c2347; color: #cdb8ff; }
+  :root:not([data-theme="light"]) .badge.t-hacr { background: #3a2c12; color: #f5c770; }
+}
+:root[data-theme="dark"] .badge.t-gfci, :root[data-theme="dark"] .badge.t-df { background: #1e2a4a; color: #a9c3ff; }
+:root[data-theme="dark"] .badge.t-afci { background: #2c2347; color: #cdb8ff; }
+:root[data-theme="dark"] .badge.t-hacr { background: #3a2c12; color: #f5c770; }
 .badge.t-main { background: var(--text); color: var(--bg); }
 
 /* ---------- lists & cards ---------- */
@@ -309,7 +320,7 @@ dialog.confirm .modal-body p { margin: 0; }
 
 #toasts { position: fixed; left: 0; right: 0; bottom: 16px; display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; z-index: 100; }
 .toast { background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 8px; max-width: calc(100vw - 32px); box-shadow: var(--shadow); }
-.toast.error { background: var(--danger); color: #fff; }
+.toast.error { background: var(--danger); color: var(--on-danger); }
 
 /* ---------- sync badge & settings ---------- */
 
@@ -358,7 +369,7 @@ dialog.confirm .modal-body p { margin: 0; }
 
 .tab-count {
   display: inline-block; min-width: 1.5em; padding: 0 5px; margin-left: 2px; border-radius: 999px;
-  background: var(--danger); color: #fff; font-size: 0.72rem; line-height: 1.5em; text-align: center; vertical-align: 1px;
+  background: var(--danger); color: var(--on-danger); font-size: 0.72rem; line-height: 1.5em; text-align: center; vertical-align: 1px;
 }
 .due-pill {
   flex: none; min-width: 5.6em; text-align: center; font-size: 0.78rem; font-weight: 700;
@@ -496,3 +507,18 @@ th.num .sort { float: right; }
 @media (max-width: 600px) {
   .data-table .wide-only { display: none; }
 }
+
+/* ---------- overflow menu (ui.js overflowMenu) ---------- */
+.overflow { position: relative; }
+.overflow-btn { min-width: 44px; font-weight: 700; }
+.overflow-menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 220px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow, 0 6px 20px rgba(0,0,0,.15));
+  padding: 4px; display: flex; flex-direction: column;
+}
+.overflow-menu[hidden] { display: none; }
+.overflow-menu button {
+  font: inherit; text-align: left; background: none; border: 0; color: var(--text);
+  padding: 10px 12px; border-radius: 6px; cursor: pointer; min-height: 44px;
+}
+.overflow-menu button:hover, .overflow-menu button:focus-visible { background: var(--surface-2); }

@@ -30,9 +30,27 @@ export function matches(query, ...fields) {
 
 export const byText = (key) => (a, b) => String(key(a) ?? '').localeCompare(String(key(b) ?? ''), undefined, { numeric: true, sensitivity: 'base' });
 
+// The currency amounts are shown in. A display setting only: costs are
+// stored as plain numbers, so changing it relabels them, never converts.
+const CURRENCY_KEY = 'homeinv.currency';
+export function currency() {
+  try {
+    const c = localStorage.getItem(CURRENCY_KEY);
+    if (c && /^[A-Z]{3}$/.test(c)) return c;
+  } catch { /* storage blocked */ }
+  return 'USD';
+}
+export function setCurrency(code) {
+  try { localStorage.setItem(CURRENCY_KEY, code); } catch { /* storage blocked */ }
+}
+
 export function money(n) {
   if (n === '' || n == null || Number.isNaN(Number(n))) return '';
-  return Number(n).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+  try {
+    return Number(n).toLocaleString(undefined, { style: 'currency', currency: currency() });
+  } catch {
+    return Number(n).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+  }
 }
 
 export function shortDate(iso) {
@@ -167,6 +185,27 @@ export function confirmDialog(message, { okLabel = 'Delete', danger = true } = {
 
 export function emptyState(text, action) {
   return h('div', { class: 'empty' }, h('p', {}, text), action || null);
+}
+
+// A "⋯" button with a menu of occasional actions, so they don't take a
+// toolbar row of their own on a phone. items: [{ label, onclick, title? }].
+export function overflowMenu(items, { label = 'More actions' } = {}) {
+  const menu = h('div', { class: 'overflow-menu', role: 'menu', hidden: true });
+  const btn = h('button', { type: 'button', class: 'btn secondary overflow-btn', 'aria-label': label, 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, '⋯');
+  const close = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); document.removeEventListener('click', outside, true); };
+  const outside = (e) => { if (!wrap.contains(e.target)) close(); };
+  for (const it of items) {
+    menu.append(h('button', { type: 'button', role: 'menuitem', title: it.title || '', onclick: () => { close(); it.onclick(); } }, it.label));
+  }
+  btn.addEventListener('click', () => {
+    if (!menu.hidden) { close(); return; }
+    menu.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('click', outside, true);
+  });
+  menu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { close(); btn.focus(); } });
+  const wrap = h('div', { class: 'overflow' }, btn, menu);
+  return wrap;
 }
 
 // Segmented control: [{value,label}] -> element with onchange(value).
