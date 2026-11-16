@@ -73,6 +73,7 @@ export function docLinks(list = [], { compact = false } = {}) {
 
 // -> { el, commit(): Promise<entry[]> }
 export function docsEditor(initial = []) {
+  const uploaded = []; // fileIds commit() created, for discard()
   let kept = [...initial];
   const removed = [];
   const added = []; // { entry, processed }
@@ -137,11 +138,23 @@ export function docsEditor(initial = []) {
       if (url.value.trim() && safeUrl(url.value)) addLink(); // typed but never pressed "Add link"
       const out = [...kept];
       for (const a of added) {
-        if (a.processed) out.push({ ...a.entry, fileId: await docs.add(a.processed) });
-        else out.push(a.entry);
+        if (a.processed) {
+          const fileId = await docs.add(a.processed);
+          uploaded.push(fileId);
+          out.push({ ...a.entry, fileId });
+        } else out.push(a.entry);
       }
-      for (const d of removed) if (d.kind === 'file') await docs.remove(d.fileId);
       return out;
+    },
+    // Same order as photoEditor: removed files go only once the record is saved.
+    async finish() {
+      for (const d of removed) if (d.kind === 'file') await docs.remove(d.fileId);
+      removed.length = 0;
+      uploaded.length = 0;
+    },
+    async discard() {
+      for (const id of uploaded) await docs.remove(id);
+      uploaded.length = 0;
     },
   };
 }

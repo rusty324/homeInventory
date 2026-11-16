@@ -250,8 +250,10 @@ export function editPaint(paint = null, presetRoomId = '') {
         toast('Enter a color name or code', 'error');
         return false;
       }
-      const photoIds = await pics.commit();
-      await saveRecord('paints', {
+      let photoIds;
+      try {
+        photoIds = await pics.commit();
+        await saveRecord('paints', {
         ...p,
         colorName: colorName.value.trim(),
         colorCode: colorCode.value.trim(),
@@ -267,13 +269,18 @@ export function editPaint(paint = null, presetRoomId = '') {
         notes: notes.value.trim(),
         uses: usesVal,
         photoIds,
-      });
+        });
+      } catch (e) {
+        await pics.discard();
+        throw e;
+      }
+      await pics.finish(); // only now that the record no longer points at them
       return true;
     },
     onDelete: paint ? async () => {
       if (!(await confirmDialog(`Delete “${paint.colorName || paint.colorCode}”?`))) return false;
-      store.remove('paints', paint.id);
-      dropPhotos(paint.photoIds);
+      await store.remove('paints', paint.id);
+      await dropPhotos(paint.photoIds);
       return true;
     } : null,
   });

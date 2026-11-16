@@ -43,11 +43,17 @@ export function viewPhoto(src) {
   dlg.showModal();
 }
 
-// -> { el, commit(): Promise<string[]> }
+// -> { el, commit(): Promise<string[]>, finish(), discard() }
+// Save in this order: commit() uploads new photos and returns the ids to
+// store; save the record; then finish() deletes the photos removed in the
+// form. If the save fails, discard() deletes what commit() uploaded. Deleting
+// before the save (as this used to) left a record pointing at photos that
+// were already gone whenever the save failed.
 export function photoEditor(initialIds = []) {
   let kept = [...initialIds];
   const removed = [];
   const added = []; // { key, processed, url }
+  const uploaded = []; // ids commit() created, for discard()
   const grid = h('div', { class: 'photo-grid' });
   const fileInput = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true });
   fileInput.addEventListener('change', async () => {
@@ -82,9 +88,21 @@ export function photoEditor(initialIds = []) {
     el: h('div', {}, grid, fileInput),
     async commit() {
       const ids = [...kept];
-      for (const a of added) ids.push(await photos.add(a.processed));
-      for (const id of removed) await photos.remove(id);
+      for (const a of added) {
+        const id = await photos.add(a.processed);
+        uploaded.push(id);
+        ids.push(id);
+      }
       return ids;
+    },
+    async finish() {
+      for (const id of removed) await photos.remove(id);
+      removed.length = 0;
+      uploaded.length = 0;
+    },
+    async discard() {
+      for (const id of uploaded) await photos.remove(id);
+      uploaded.length = 0;
     },
   };
 }
