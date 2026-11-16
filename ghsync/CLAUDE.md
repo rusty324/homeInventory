@@ -96,7 +96,9 @@ Returned:
   `{status, error, errorAt, connected, queued}` where status is `'local' |
   'ok' | 'pending' | 'error'` and `queued` lists paths not yet uploaded;
   `refreshStatus()`, `canSync()`, `emit(event)`.
-  Events: `{type:'changed', collection}` and `{type:'sync-status', status, error}`.
+  Events: `{type:'changed', collection}`, `{type:'sync-status', status, error}`
+  and `{type:'merged', collection, path}` (a conflict merged another device's
+  changes in; 1.4).
   `'pending'` = queued, will retry by itself: only `NetworkError`,
   `ServerError` (5xx) and `RateLimitError`. `'error'` = everything else —
   needs the user. Either way the write stays queued and keeps retrying.
@@ -121,7 +123,8 @@ actionable}`, `errorReport(store)` → plain-text diagnostics (no token, no
 password), and `errorPanel(store, { toast, onRetry })` → that report in a
 read-only box with Copy and Retry now, for the host's own modal.
 
-`blobs.js` exports `createBlobStore(store, { dbName, dir, kind })` and the
+`blobs.js` exports `createBlobStore(store, { dbName, dir, kind })` (its store
+has `add`, `restore(id, processed)` (1.4), `remove`, `load`, `urls`, `blob`) and the
 input helpers `processImage(file)` (downscale to JPEG + thumbnail),
 `processDocument(file)`, `MAX_DOC_BYTES`.
 

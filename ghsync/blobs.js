@@ -136,6 +136,18 @@ export function createBlobStore(store, { dbName, dir, kind }) {
     return id;
   }
 
+  // Put an attachment back under its own id (a backup being restored).
+  // Only when it is nowhere to be found — not here, and not in the data repo
+  // either (load() looks there) — so an existing copy is never overwritten.
+  // -> true when it was restored.
+  async function restore(id, processed) {
+    if (!id || !processed?.data) return false;
+    if (await load(id)) return false;
+    await put({ id, ...processed, sha: null, state: 'pending' });
+    flush();
+    return true;
+  }
+
   async function remove(id) {
     const rec = await get(id);
     thumbs.delete(id);
@@ -303,7 +315,7 @@ export function createBlobStore(store, { dbName, dir, kind }) {
   }
 
   return {
-    add, remove, load, urls, blob, cachedThumb, flush, mirror, pushAll, init,
+    add, restore, remove, load, urls, blob, cachedThumb, flush, mirror, pushAll, init,
     pending: () => pendingCount,
     owns: (p) => p.startsWith(`${dir}/`),
   };

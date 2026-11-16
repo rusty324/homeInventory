@@ -413,7 +413,7 @@ try {
   for (const [name, cost] of [['TV', '899.99'], ['Drill', '129']]) {
     await page.getByRole('button', { name: '+ Item', exact: true }).click();
     await fieldIn(page, 'Name').locator('input').fill(name);
-    await fieldIn(page, 'Purchase cost \\(\\$\\)').locator('input').fill(cost);
+    await fieldIn(page, 'Purchase cost').locator('input').fill(cost);
     await fieldIn(page, 'Room').locator('select').selectOption({ label: 'Living Room' });
     await dialog(page).getByRole('button', { name: 'Save' }).click();
     await page.waitForTimeout(150);
@@ -497,7 +497,7 @@ try {
   const wSection = page.locator('.group-warranty');
   check((await wSection.locator('.list-row').count()) === 1 && (await wSection.textContent()).includes('Drill'), 'Maintenance lists the warranty ending soon (not the one a year out)');
   await page.locator('.task-row', { hasText: 'HVAC' }).getByRole('button', { name: '✓ Done' }).click();
-  await fieldIn(page, 'Cost \\(\\$\\)').locator('input').fill('24.50');
+  await fieldIn(page, 'Cost').locator('input').fill('24.50');
   await fieldIn(page, 'Note').locator('input').fill('16x25x1 MERV 8');
   await dialog(page).getByRole('button', { name: 'Log it' }).click();
   await page.waitForTimeout(200);
@@ -513,7 +513,7 @@ try {
   await page.getByRole('tab', { name: 'History' }).click();
   check((await page.locator('.results').textContent()).includes('$24.50'), 'history lists the logged cost');
   await page.getByRole('tab', { name: 'Upcoming' }).click();
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Calendar (.ics)' }).click()]);
+  const [dl] = await Promise.all([page.waitForEvent('download'), (async () => { await page.getByRole('button', { name: 'More maintenance actions' }).click(); await page.getByRole('menuitem', { name: 'Download calendar (.ics)' }).click(); })()]);
   const ics = await fs.readFile(await dl.path(), 'utf8');
   check((ics.match(/BEGIN:VEVENT/g) || []).length === 5 && ics.includes('RRULE:FREQ=MONTHLY;INTERVAL=3'), 'calendar export has 3 recurring tasks + 2 warranty ends');
   const unfolded = ics.replace(/\r\n /g, '');

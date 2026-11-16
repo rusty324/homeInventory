@@ -1,5 +1,14 @@
 # ghsync changelog
 
+## 1.4 — 2026-11-16
+
+- `blobs.restore(id, processed)` puts an attachment back under its own id
+  (restoring a backup), only when it exists neither locally nor in the repo.
+
+- A conflict that merged another device's changes now emits
+  `{ type: 'merged', collection, path }` after the usual `changed`, so an app
+  can say so (FitnessTracker shows a toast).
+
 ## 1.3 — 2026-11-15
 
 - **A conflict merge let every local record win, not just the edited ones.**

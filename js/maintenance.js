@@ -7,7 +7,7 @@
 
 import {
   h, uid, input, textarea, field, select, setOptions, suggestInput, openModal, confirmDialog,
-  toast, matches, byText, clear, emptyState, segmented, money, shortDate,
+  toast, matches, byText, clear, emptyState, segmented, money, shortDate, overflowMenu,
 } from './ui.js';
 import { TASK_TIPS, DONE_TIPS } from './tips.js';
 import { store, saveRecord } from './sync.js';
@@ -109,12 +109,17 @@ export function mount(root) {
   catFilter = select([], state.category, { 'aria-label': 'Filter by category' });
   catFilter.addEventListener('change', () => { state.category = catFilter.value; refresh(); });
   root.append(
-    h('div', { class: 'toolbar' }, q, h('button', { class: 'btn', onclick: () => editTask() }, '+ Task')),
+    h('div', { class: 'toolbar' }, q, h('button', { class: 'btn', onclick: () => editTask() }, '+ Task'),
+      // Occasional actions behind one "⋯": they used to take a third toolbar
+      // row of their own on a phone.
+      overflowMenu([
+        { label: 'Common tasks…', onclick: openPresets },
+        { label: 'Download calendar (.ics)', onclick: exportIcs, title: 'Add the schedule to your phone or computer calendar' },
+        { label: 'Calendar feed settings…', onclick: () => { location.hash = 'settings'; } },
+      ], { label: 'More maintenance actions' })),
     h('div', { class: 'toolbar filters' },
       catFilter,
-      segmented([{ value: 'upcoming', label: 'Upcoming' }, { value: 'history', label: 'History' }], state.view, (v) => { state.view = v; refresh(); }),
-      h('button', { class: 'btn secondary', onclick: openPresets }, 'Common tasks…'),
-      h('button', { class: 'btn secondary', onclick: exportIcs, title: 'Add the schedule to your phone or computer calendar' }, 'Calendar (.ics)')),
+      segmented([{ value: 'upcoming', label: 'Upcoming' }, { value: 'history', label: 'History' }], state.view, (v) => { state.view = v; refresh(); })),
     results);
   refresh();
 }
@@ -218,7 +223,7 @@ export function markDone(t) {
     title: `Done: ${t.name}`,
     tips: DONE_TIPS,
     body: h('div', { class: 'form-grid' },
-      field('Date', date), field('Cost ($)', cost), field('Note', note, { wide: true })),
+      field('Date', date), field('Cost', cost), field('Note', note, { wide: true })),
     saveLabel: 'Log it',
     onSave: async () => {
       if (!date.value) { toast('Pick a date', 'error'); return false; }
@@ -382,7 +387,9 @@ function fold(line) {
 
 // items: inventory items whose warranty end becomes a one-off event with an
 // alarm WARRANTY_ALERT_DAYS ahead.
-export function buildIcs(list, now = new Date(), items = []) {
+// shared: for the subscribable feed (calendar-feed.js), whose URL anyone
+// holding it can read — leaves out notes, serial numbers and warranty details.
+export function buildIcs(list, now = new Date(), items = [], { shared = false } = {}) {
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   const freq = { days: 'DAILY', weeks: 'WEEKLY', months: 'MONTHLY', years: 'YEARLY' };
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Home Records//Maintenance//EN', 'CALSCALE:GREGORIAN', 'X-WR-CALNAME:Home maintenance'];
@@ -391,7 +398,7 @@ export function buildIcs(list, now = new Date(), items = []) {
     if (!s.due) continue;
     const start = s.days < 0 ? today() : s.due;
     const end = addInterval(start, 1, 'days');
-    const desc = [t.parts && `Parts: ${t.parts}`, t.notes, t.lastDone && `Last done ${t.lastDone}`].filter(Boolean).join('\n');
+    const desc = [t.parts && `Parts: ${t.parts}`, !shared && t.notes, t.lastDone && `Last done ${t.lastDone}`].filter(Boolean).join('\n');
     lines.push('BEGIN:VEVENT',
       `UID:${t.id}@home-records`,
       `DTSTAMP:${stamp}`,
@@ -406,7 +413,7 @@ export function buildIcs(list, now = new Date(), items = []) {
   for (const item of items) {
     const s = warrantyStatus(item);
     if (s.key === 'none' || s.days < 0) continue;
-    const desc = [[item.brand, item.model].filter(Boolean).join(' '), item.serial && `Serial ${item.serial}`, item.warrantyNotes].filter(Boolean).join('\n');
+    const desc = [[item.brand, item.model].filter(Boolean).join(' '), !shared && item.serial && `Serial ${item.serial}`, !shared && item.warrantyNotes].filter(Boolean).join('\n');
     lines.push('BEGIN:VEVENT',
       `UID:warranty-${item.id}@home-records`,
       `DTSTAMP:${stamp}`,
@@ -421,6 +428,14 @@ export function buildIcs(list, now = new Date(), items = []) {
   }
   lines.push('END:VCALENDAR');
   return `${lines.map(fold).join('\r\n')}\r\n`;
+}
+
+// What the calendar holds: scheduled tasks, and warranties not yet ended.
+export function icsSources() {
+  return {
+    list: tasks().filter((t) => dueDate(t)),
+    warranties: store.get('items').filter((i) => { const s = warrantyStatus(i); return s.key !== 'none' && s.days >= 0; }),
+  };
 }
 
 function exportIcs() {

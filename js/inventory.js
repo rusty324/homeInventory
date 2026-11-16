@@ -164,7 +164,7 @@ export function editItem(item = null) {
       field('Model number', model),
       field('Serial number', serial),
       field('Acquisition date', acquired),
-      field('Purchase cost ($)', cost),
+      field('Purchase cost', cost),
       field('Room', room),
       field('Location detail', locationDetail),
       field('Description', description, { wide: true }),

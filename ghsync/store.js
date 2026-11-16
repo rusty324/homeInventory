@@ -29,7 +29,7 @@ export {
 
 // Keep in step with CHANGELOG.md. Shown in error reports, so a report says
 // which copy of ghsync produced it.
-export const VERSION = '1.3';
+export const VERSION = '1.4';
 
 // Failures that clear on their own: the write stays queued and the status is
 // 'pending'. Everything else is 'error' — it needs a person — even though the
@@ -421,6 +421,10 @@ export function createStore(opts) {
     writeCache(path, [...byId.values()]);
     cache.setSha(path, sha);
     if (collection) emit({ type: 'changed', collection });
+    // Tell the app another device's changes were folded in, so a value it
+    // didn't expect has an explanation. Only when the repo actually had a
+    // file to merge with.
+    if (remote) emit({ type: 'merged', collection, path });
   }
 
   // Retry everything still dirty (called on 'online' and on a timer).
